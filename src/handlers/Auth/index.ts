@@ -1,105 +1,285 @@
-import { Request,Response,NextFunction } from "express";
-import User from "../../models/user";
+import { Request, Response, NextFunction } from "express";
+import User, { IUser } from "../../models/user";
 import connecToDatabase from "../../config/db";
-import bcrypt from 'bcrypt'
+import bcrypt from 'bcrypt';
 import generateToken from "../../utils/functions";
-import { User as UserType } from "../../Types/User";
 import mongoose from "mongoose";
 
+// Helper function to set secure cookie
+const setTokenCookie = (res: Response, token: string) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  res.cookie('auth-token', token, {
+    httpOnly: true,          // Cannot be accessed by JavaScript
+    secure: isProduction,    // HTTPS only in production
+    sameSite: 'lax',         // CSRF protection
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    path: '/'
+  });
+};
 
-export const SignUp=async (req:Request,res:Response,next:NextFunction)=>{
-    try{
-        const {name,password,email,phone,role} = await req.body;
+export const SignUp = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name, password, email, phone, role } = req.body;
 
-        if(!name || !password || !email || !phone){
-            return res.status(400).json({
-                msg:"Invalid inputs"
-            });
-        }
-        
-        await connecToDatabase();
-        
-        const existingEmailAddress = await User.findOne({
-            email: email
-        });
-
-        if(existingEmailAddress){
-            return res.status(403).json({
-                msg:"Email account already exists"
-            });
-        }
-
-        const existingPhone = await User.findOne({
-            phone: phone
-        });
-
-        if(existingPhone){
-            return res.status(403).json({
-                msg:"Phone number already exists"
-            });
-        }
-
-        const hashedPassword = await bcrypt.hash(password,10);
-
-        const user = await User.create({
-            name:name,
-            password:hashedPassword,
-            email:email,
-            phone:phone,
-            role:role
-        });
-
-        const token = generateToken(user._id as mongoose.Types.ObjectId)
-
-        return res.status(201).json({
-            msg:"User created successfully",
-            token
-        });
-
+    // Comprehensive validation
+    if (!name || !password || !email || !phone) {
+      return res.status(400).json({
+        success: false,
+        msg: "Please provide all required fields: name, email, phone, and password"
+      });
     }
-    catch(e){
-        next(e);
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        msg: "Please provide a valid email address"
+      });
     }
-}
 
-
-
-export const LogIn = async (req:Request,res:Response,next:NextFunction)=>{
-    try{
-        const {email,password} = req.body;
-
-        if(!email || !password){
-            return res.status(400).json({
-                msg:"Invalid inputs"
-            })
-        }
-        
-        const userExists:UserType | null= await User.findOne({email}).select("+password");
-
-
-        if(!userExists){
-            return res.status(403).json({
-                msg:"No account found. Please create a new account"
-            })
-        }
-
-        const checkPassword = await bcrypt.compareSync(password,userExists.password)
-
-        if(!checkPassword){
-            return res.status(200).json({
-                msg:"Invalid password"
-            })
-        }
-
-        const token = generateToken(userExists._id );
-
-        return res.status(200).json({
-            msg:"Logged in successfully",
-            token,
-        })
-
+    // Validate password strength
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        msg: "Password must be at least 6 characters long"
+      });
     }
-    catch(e){
-        next(e);
+
+    // Validate phone number (basic validation)
+    if (phone.length < 10) {
+      return res.status(400).json({
+        success: false,
+        msg: "Please provide a valid phone number"
+      });
     }
-}
+
+    // Validate role
+    const validRoles = ['customer', 'professional', 'admin'];
+    if (role && !validRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        msg: "Invalid role. Must be one of: customer, professional"
+      });
+    }
+
+    await connecToDatabase();
+
+    // Check for existing email
+    const existingEmailAddress = await User.findOne({
+      email: email.toLowerCase().trim()
+    });
+
+    if (existingEmailAddress) {
+      return res.status(409).json({
+        success: false,
+        msg: "An account with this email already exists"
+      });
+    }
+
+    // Check for existing phone
+    const existingPhone = await User.findOne({
+      phone: phone.trim()
+    });
+
+    if (existingPhone) {
+      return res.status(409).json({
+        success: false,
+        msg: "An account with this phone number already exists"
+      });
+    }
+
+    // Hash password
+    const saltRounds = 12; // Increased for better security
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // Create user
+    const user = await User.create({
+      name: name.trim(),
+      password: hashedPassword,
+      email: email.toLowerCase().trim(),
+      phone: phone.trim(),
+      role: role || 'customer',
+      isEmailVerified: false,
+      isPhoneVerified: false
+    });
+
+    // Generate token
+    const token = generateToken(user._id as mongoose.Types.ObjectId);
+
+    // Set httpOnly cookie
+    setTokenCookie(res, token);
+
+    // Prepare user response (remove password)
+    const userResponse = {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      isEmailVerified: user.isEmailVerified || false,
+      isPhoneVerified: user.isPhoneVerified || false,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    };
+
+    return res.status(201).json({
+      success: true,
+      msg: "Account created successfully",
+      token, // Also send in response for compatibility
+      user: userResponse
+    });
+
+  } catch (error: any) {
+    console.error('SignUp error:', error);
+    
+    // Handle mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map((err: any) => err.message);
+      return res.status(400).json({
+        success: false,
+        msg: messages.join(', ')
+      });
+    }
+
+    // Handle duplicate key errors
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(409).json({
+        success: false,
+        msg: `An account with this ${field} already exists`
+      });
+    }
+
+    next(error);
+  }
+};
+
+export const LogIn = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { email, password } = req.body;
+
+    // Validation
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        msg: "Please provide both email and password"
+      });
+    }
+
+    await connecToDatabase();
+
+    // Find user with password field
+    const userExists: IUser = await User.findOne({
+      email: email.toLowerCase().trim()
+    }).select("+password");
+
+    if (!userExists) {
+      return res.status(401).json({
+        success: false,
+        msg: "Invalid email or password"
+      });
+    }
+
+    // Compare password
+    const checkPassword = await bcrypt.compare(password, userExists.password!);
+
+    if (!checkPassword) {
+      return res.status(401).json({
+        success: false,
+        msg: "Invalid email or password"
+      });
+    }
+
+    // Generate token
+    const token = generateToken(userExists._id as mongoose.Types.ObjectId);
+
+    // Set httpOnly cookie
+    setTokenCookie(res, token);
+
+    // Prepare user response (remove password)
+    const userResponse = {
+      _id: userExists._id,
+      name: userExists.name,
+      email: userExists.email,
+      phone: userExists.phone,
+      role: userExists.role,
+      isEmailVerified:  false,
+      isPhoneVerified:false,
+      createdAt: userExists.createdAt,
+      updatedAt: userExists.updatedAt
+    };
+
+    return res.status(200).json({
+      success: true,
+      msg: "Login successful",
+      token, // Also send in response for compatibility
+      user: userResponse
+    });
+
+  } catch (error: any) {
+    console.error('Login error:', error);
+    next(error);
+  }
+};
+
+// Add logout endpoint
+export const LogOut = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Clear the httpOnly cookie
+    res.clearCookie('auth-token', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/'
+    });
+
+    return res.status(200).json({
+      success: true,
+      msg: "Logged out successfully"
+    });
+
+  } catch (error: any) {
+    console.error('Logout error:', error);
+    next(error);
+  }
+};
+
+// Get current user endpoint
+export const getMe = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // User is already attached to req by the protect middleware
+    const user = req.user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        msg: "User not found"
+      });
+    }
+
+    // Prepare user response (remove password)
+    const userResponse = {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      isEmailVerified: user.isEmailVerified || false,
+      isPhoneVerified: user.isPhoneVerified || false,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    };
+
+    return res.status(200).json({
+      success: true,
+      user: userResponse
+    });
+
+  } catch (error: any) {
+    console.error('GetMe error:', error);
+    next(error);
+  }
+};
+
