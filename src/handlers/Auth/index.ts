@@ -1,19 +1,22 @@
 import { Request, Response, NextFunction } from "express";
 import User, { IUser } from "../../models/user";
 import connecToDatabase from "../../config/db";
+import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import generateToken from "../../utils/functions";
+import { generateOTP, sendOTPEmail } from "../../utils/emailService";
+import twilio from 'twilio';
 import mongoose from "mongoose";
 
 // Helper function to set secure cookie
 const setTokenCookie = (res: Response, token: string) => {
   const isProduction = process.env.NODE_ENV === 'production';
-  
+
   res.cookie('auth-token', token, {
-    httpOnly: true,          // Cannot be accessed by JavaScript
-    secure: isProduction,    // HTTPS only in production
-    sameSite: 'lax',         // CSRF protection
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    httpOnly:true,
+    secure: isProduction, // must be true when SameSite=None
+    sameSite: isProduction ? 'none' : 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/'
   });
 };
@@ -94,7 +97,11 @@ export const SignUp = async (req: Request, res: Response, next: NextFunction) =>
     const saltRounds = 12; // Increased for better security
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    // Create user
+    // Prepare verification artifacts
+    const emailOtp = generateOTP();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Create user with email verification fields initialized
     const user = await User.create({
       name: name.trim(),
       password: hashedPassword,
@@ -102,8 +109,37 @@ export const SignUp = async (req: Request, res: Response, next: NextFunction) =>
       phone: phone.trim(),
       role: role || 'customer',
       isEmailVerified: false,
-      isPhoneVerified: false
+      isPhoneVerified: false,
+      verificationCode: emailOtp,
+      verificationCodeExpires: otpExpiry
     });
+
+    // Kick off OTP sends (email + SMS) in parallel, but await to report status
+    let emailOtpSent = false;
+    let phoneOtpSent = false;
+
+    try {
+      emailOtpSent = await sendOTPEmail(user.email, emailOtp, user.name);
+    } catch (e) {
+      console.error('Error sending email OTP during signup:', e);
+    }
+
+    try {
+      const accountSid = process.env.TWILIO_ACCOUNT_SID;
+      const authToken = process.env.TWILIO_AUTH_TOKEN;
+      const verifyServiceSid = process.env.TWILIO_VERIFY_SERVICE_SID;
+
+      if (accountSid && authToken && verifyServiceSid) {
+        const twilioClient = twilio(accountSid, authToken);
+        await twilioClient.verify.v2.services(verifyServiceSid).verifications.create({
+          channel: 'sms',
+          to: user.phone
+        });
+        phoneOtpSent = true;
+      }
+    } catch (e) {
+      console.error('Error sending phone OTP during signup:', e);
+    }
 
     // Generate token
     const token = generateToken(user._id as mongoose.Types.ObjectId);
@@ -128,7 +164,9 @@ export const SignUp = async (req: Request, res: Response, next: NextFunction) =>
       success: true,
       msg: "Account created successfully",
       token, // Also send in response for compatibility
-      user: userResponse
+      user: userResponse,
+      emailOtpSent,
+      phoneOtpSent
     });
 
   } catch (error: any) {
@@ -231,7 +269,7 @@ export const LogOut = async (req: Request, res: Response, next: NextFunction) =>
     res.clearCookie('auth-token', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'none',
       path: '/'
     });
 
@@ -249,17 +287,40 @@ export const LogOut = async (req: Request, res: Response, next: NextFunction) =>
 // Get current user endpoint
 export const getMe = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // User is already attached to req by the protect middleware
-    const user = req.user;
+    const token = req.cookies?.['auth-token'];
 
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        msg: "User not found"
-      });
+    if (!token) {
+      return res.status(200).json({ success: true, authenticated: false, user: null });
     }
 
-    // Prepare user response (remove password)
+    let decoded: { id: string } | null = null;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
+    } catch (err) {
+      // Invalid token: clear cookie and return unauthenticated
+      res.clearCookie('auth-token', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'none',
+        path: '/'
+      });
+      return res.status(200).json({ success: true, authenticated: false, user: null });
+    }
+
+    await connecToDatabase();
+    const user = await User.findById(decoded.id).select('-password');
+
+    if (!user) {
+      // No user for token: clear cookie and return unauthenticated
+      res.clearCookie('auth-token', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'none',
+        path: '/'
+      });
+      return res.status(200).json({ success: true, authenticated: false, user: null });
+    }
+
     const userResponse = {
       _id: user._id,
       name: user.name,
@@ -272,14 +333,12 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
       updatedAt: user.updatedAt
     };
 
-    return res.status(200).json({
-      success: true,
-      user: userResponse
-    });
+    return res.status(200).json({ success: true, authenticated: true, user: userResponse });
 
   } catch (error: any) {
     console.error('GetMe error:', error);
-    next(error);
+    // On server error, do not leak details; treat as unauthenticated but with success=false
+    return res.status(200).json({ success: false, authenticated: false, user: null });
   }
 };
 
