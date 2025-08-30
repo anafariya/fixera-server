@@ -5,9 +5,11 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "node --watch --import tsx src/index.ts",
+    "dev": "nodemon --exec \"npx tsx src/index.ts\"",
     "build": "tsc && node dist/index.js",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "seed:admin": "node src/scripts/seedAdmin.js",
+    "seed:admin:ts": "npx tsx src/scripts/seedAdmin.ts"
   },
   "repository": {
     "type": "git",
@@ -22,10 +24,13 @@
   },
   "homepage": "https://github.com/Absterrg0/fixera-server#readme",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.879.0",
+    "@aws-sdk/s3-request-presigner": "^3.879.0",
     "@getbrevo/brevo": "^3.0.1",
     "@types/cookie-parser": "^1.4.9",
     "@types/express": "^5.0.3",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.0.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -33,11 +38,13 @@
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.17.1",
+    "multer": "^2.0.2",
     "twilio": "^5.8.0",
     "typescript": "^5.9.2"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
+    "nodemon": "^3.1.10",
     "tsx": "^4.20.4"
   }
 }

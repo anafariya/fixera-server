@@ -119,6 +119,7 @@ export const SignUp = async (req: Request, res: Response, next: NextFunction) =>
     let phoneOtpSent = false;
 
     try {
+      console.log(`🔐 Generated EMAIL OTP for signup: ${emailOtp} (${user.email})`);
       emailOtpSent = await sendOTPEmail(user.email, emailOtp, user.name);
     } catch (e) {
       console.error('Error sending email OTP during signup:', e);
@@ -156,6 +157,23 @@ export const SignUp = async (req: Request, res: Response, next: NextFunction) =>
       role: user.role,
       isEmailVerified: user.isEmailVerified || false,
       isPhoneVerified: user.isPhoneVerified || false,
+      vatNumber: user.vatNumber,
+      isVatVerified: user.isVatVerified || false,
+      idProofUrl: user.idProofUrl,
+      idProofFileName: user.idProofFileName,
+      idProofUploadedAt: user.idProofUploadedAt,
+      isIdVerified: user.isIdVerified || false,
+      professionalStatus: user.professionalStatus,
+      approvedBy: user.approvedBy,
+      approvedAt: user.approvedAt,
+      rejectionReason: user.rejectionReason,
+      businessInfo: user.businessInfo,
+      hourlyRate: user.hourlyRate,
+      currency: user.currency,
+      serviceCategories: user.serviceCategories,
+      availability: user.availability,
+      blockedDates: user.blockedDates,
+      profileCompletedAt: user.profileCompletedAt,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     };
@@ -243,8 +261,10 @@ export const LogIn = async (req: Request, res: Response, next: NextFunction) => 
       email: userExists.email,
       phone: userExists.phone,
       role: userExists.role,
-      isEmailVerified:  false,
-      isPhoneVerified:false,
+      isEmailVerified: userExists.isEmailVerified || false,
+      isPhoneVerified: userExists.isPhoneVerified || false,
+      vatNumber: userExists.vatNumber,
+      isVatVerified: userExists.isVatVerified || false,
       createdAt: userExists.createdAt,
       updatedAt: userExists.updatedAt
     };
@@ -265,11 +285,13 @@ export const LogIn = async (req: Request, res: Response, next: NextFunction) => 
 // Add logout endpoint
 export const LogOut = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Clear the httpOnly cookie
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    // Clear the httpOnly cookie with same settings used when setting it
     res.clearCookie('auth-token', {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'none',
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
       path: '/'
     });
 
@@ -298,10 +320,11 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
       decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
     } catch (err) {
       // Invalid token: clear cookie and return unauthenticated
+      const isProduction = process.env.NODE_ENV === 'production';
       res.clearCookie('auth-token', {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'none',
+        secure: isProduction,
+        sameSite: isProduction ? 'none' : 'lax',
         path: '/'
       });
       return res.status(200).json({ success: true, authenticated: false, user: null });
@@ -312,10 +335,11 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
 
     if (!user) {
       // No user for token: clear cookie and return unauthenticated
+      const isProduction = process.env.NODE_ENV === 'production';
       res.clearCookie('auth-token', {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'none',
+        secure: isProduction,
+        sameSite: isProduction ? 'none' : 'lax',
         path: '/'
       });
       return res.status(200).json({ success: true, authenticated: false, user: null });
@@ -329,6 +353,23 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
       role: user.role,
       isEmailVerified: user.isEmailVerified || false,
       isPhoneVerified: user.isPhoneVerified || false,
+      vatNumber: user.vatNumber,
+      isVatVerified: user.isVatVerified || false,
+      idProofUrl: user.idProofUrl,
+      idProofFileName: user.idProofFileName,
+      idProofUploadedAt: user.idProofUploadedAt,
+      isIdVerified: user.isIdVerified || false,
+      professionalStatus: user.professionalStatus,
+      approvedBy: user.approvedBy,
+      approvedAt: user.approvedAt,
+      rejectionReason: user.rejectionReason,
+      businessInfo: user.businessInfo,
+      hourlyRate: user.hourlyRate,
+      currency: user.currency,
+      serviceCategories: user.serviceCategories,
+      availability: user.availability,
+      blockedDates: user.blockedDates,
+      profileCompletedAt: user.profileCompletedAt,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     };

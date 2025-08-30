@@ -36,6 +36,7 @@ export const sendEmailOTP = async (req: Request, res: Response, next: NextFuncti
 
     // Generate OTP
     const otp = generateOTP();
+    console.log(`🔐 Generated EMAIL OTP for verification: ${otp} (${email})`);
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     // Update user with OTP and expiry
@@ -169,6 +170,7 @@ export const resendEmailOTP = async (req: Request, res: Response, next: NextFunc
 
     // Generate new OTP
     const otp = generateOTP();
+    console.log(`🔐 Resend EMAIL OTP: ${otp} (${email})`);
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     // Update user with new OTP and expiry

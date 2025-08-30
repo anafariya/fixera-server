@@ -14,6 +14,47 @@ export interface IUser extends Document {
     role: UserRole;
     verificationCode?: string;
     verificationCodeExpires?: Date;
+    vatNumber?: string;
+    isVatVerified?: boolean;
+    idProofUrl?: string;
+    idProofFileName?: string;
+    idProofUploadedAt?: Date;
+    isIdVerified?: boolean;
+    // Professional approval fields
+    professionalStatus?: 'pending' | 'approved' | 'rejected' | 'suspended';
+    approvedBy?: string; // Admin user ID who approved
+    approvedAt?: Date;
+    rejectionReason?: string;
+    // Professional-specific fields
+    businessInfo?: {
+        companyName?: string;
+        description?: string;
+        website?: string;
+        address?: string;
+        city?: string;
+        country?: string;
+        postalCode?: string;
+    };
+    hourlyRate?: number;
+    currency?: string;
+    serviceCategories?: string[];
+    availability?: {
+        monday?: { available: boolean; startTime?: string; endTime?: string; };
+        tuesday?: { available: boolean; startTime?: string; endTime?: string; };
+        wednesday?: { available: boolean; startTime?: string; endTime?: string; };
+        thursday?: { available: boolean; startTime?: string; endTime?: string; };
+        friday?: { available: boolean; startTime?: string; endTime?: string; };
+        saturday?: { available: boolean; startTime?: string; endTime?: string; };
+        sunday?: { available: boolean; startTime?: string; endTime?: string; };
+    };
+    blockedDates?: Date[];
+    profileCompletedAt?: Date;
+    // Loyalty system fields
+    loyaltyPoints?: number;
+    loyaltyLevel?: 'Bronze' | 'Silver' | 'Gold' | 'Platinum';
+    totalSpent?: number;
+    totalBookings?: number;
+    lastLoyaltyUpdate?: Date;
 }
 
 const UserSchema = new Schema<IUser>({
@@ -59,6 +100,159 @@ const UserSchema = new Schema<IUser>({
     verificationCodeExpires: {
         type: Date,
         select: false 
+    },
+    vatNumber: {
+        type: String,
+        required: false,
+        trim: true,
+        validate: {
+            validator: function(v: string) {
+                if (!v) return true; // VAT number is optional
+                // Basic VAT number format validation (2-letter country code + 4-15 digits/letters)
+                return /^[A-Z]{2}[A-Z0-9]{4,15}$/.test(v);
+            },
+            message: 'Invalid VAT number format'
+        }
+    },
+    isVatVerified: {
+        type: Boolean,
+        default: false
+    },
+    idProofUrl: {
+        type: String,
+        required: false
+    },
+    idProofFileName: {
+        type: String,
+        required: false
+    },
+    idProofUploadedAt: {
+        type: Date,
+        required: false
+    },
+    isIdVerified: {
+        type: Boolean,
+        default: false
+    },
+    // Professional approval fields
+    professionalStatus: {
+        type: String,
+        enum: ['pending', 'approved', 'rejected', 'suspended'],
+        default: function() {
+            return this.role === 'professional' ? 'pending' : undefined;
+        },
+        required: function() {
+            return this.role === 'professional';
+        }
+    },
+    approvedBy: {
+        type: String,
+        required: false
+    },
+    approvedAt: {
+        type: Date,
+        required: false
+    },
+    rejectionReason: {
+        type: String,
+        required: false,
+        maxlength: 500
+    },
+    // Professional-specific fields
+    businessInfo: {
+        companyName: { type: String, required: false },
+        description: { type: String, required: false, maxlength: 1000 },
+        website: { type: String, required: false },
+        address: { type: String, required: false },
+        city: { type: String, required: false },
+        country: { type: String, required: false },
+        postalCode: { type: String, required: false }
+    },
+    hourlyRate: {
+        type: Number,
+        required: false,
+        min: 0,
+        max: 10000
+    },
+    currency: {
+        type: String,
+        required: false,
+        default: 'USD',
+        enum: ['USD', 'EUR', 'GBP', 'CAD', 'AUD']
+    },
+    serviceCategories: [{
+        type: String,
+        required: false
+    }],
+    availability: {
+        monday: {
+            available: { type: Boolean, default: false },
+            startTime: { type: String, required: false },
+            endTime: { type: String, required: false }
+        },
+        tuesday: {
+            available: { type: Boolean, default: false },
+            startTime: { type: String, required: false },
+            endTime: { type: String, required: false }
+        },
+        wednesday: {
+            available: { type: Boolean, default: false },
+            startTime: { type: String, required: false },
+            endTime: { type: String, required: false }
+        },
+        thursday: {
+            available: { type: Boolean, default: false },
+            startTime: { type: String, required: false },
+            endTime: { type: String, required: false }
+        },
+        friday: {
+            available: { type: Boolean, default: false },
+            startTime: { type: String, required: false },
+            endTime: { type: String, required: false }
+        },
+        saturday: {
+            available: { type: Boolean, default: false },
+            startTime: { type: String, required: false },
+            endTime: { type: String, required: false }
+        },
+        sunday: {
+            available: { type: Boolean, default: false },
+            startTime: { type: String, required: false },
+            endTime: { type: String, required: false }
+        }
+    },
+    blockedDates: [{
+        type: Date,
+        required: false
+    }],
+    profileCompletedAt: {
+        type: Date,
+        required: false
+    },
+    // Loyalty system fields
+    loyaltyPoints: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    loyaltyLevel: {
+        type: String,
+        enum: ['Bronze', 'Silver', 'Gold', 'Platinum'],
+        default: 'Bronze'
+    },
+    totalSpent: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    totalBookings: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    lastLoyaltyUpdate: {
+        type: Date,
+        default: Date.now
     }
 }, {
     timestamps: true
