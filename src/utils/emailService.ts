@@ -22,6 +22,9 @@ export const generateOTP = (): string => {
 // Send OTP email using Brevo
 export const sendOTPEmail = async (email: string, otp: string, userName: string): Promise<boolean> => {
   try {
+    // Console log the OTP for debugging
+    console.log(`📧 EMAIL OTP for ${email} (${userName}): ${otp}`);
+    
     const emailAPI = createEmailAPI();
     
     const emailContent = `
