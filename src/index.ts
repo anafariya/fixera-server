@@ -7,7 +7,7 @@ import connectDB from './config/db';
 import authRouter from './routes/Auth';
 import userRouter from './routes/User';
 import adminRouter from './routes/Admin';
-import projectRouter from './routes/project';
+import projectRouter from './routes/Project';
 
 dotenv.config();
 

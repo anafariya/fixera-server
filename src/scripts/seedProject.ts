@@ -1,4 +1,4 @@
-import ServiceCategory from '../../models/serviceCategory';
+import ServiceCategory from '../models/serviceCategory';
 
 export const seedServiceCategories = async () => {
   try {
