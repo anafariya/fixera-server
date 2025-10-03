@@ -69,6 +69,7 @@ export interface ISubproject {
     name: string;
     description: string;
     projectType: string[];
+    customProjectType?: string; // For "Other" option
     professionalInputs: IProfessionalInputValue[]; // Dynamic fields filled by professional
     pricing: IPricing;
     included: IIncludedItem[];
@@ -77,7 +78,10 @@ export interface ISubproject {
     executionDuration: IExecutionDuration;
     buffer?: IBuffer;
     intakeDuration?: IIntakeDuration;
-    warrantyPeriod: number;
+    warrantyPeriod: {
+        value: number;
+        unit: 'months' | 'years';
+    };
 }
 
 export interface IExtraOption {
@@ -105,6 +109,7 @@ export interface IRFQQuestion {
     type: 'text' | 'multiple_choice' | 'attachment';
     options?: string[];
     isRequired: boolean;
+    professionalAttachments?: string[]; // URLs of files uploaded by professional
 }
 
 export interface IPostBookingQuestion {
@@ -112,6 +117,7 @@ export interface IPostBookingQuestion {
     type: 'text' | 'multiple_choice' | 'attachment';
     options?: string[];
     isRequired: boolean;
+    professionalAttachments?: string[]; // URLs of files uploaded by professional
 }
 
 export interface IQualityCheck {
@@ -259,8 +265,9 @@ const ProfessionalInputValueSchema = new Schema({
 // Subproject Schema
 const SubprojectSchema = new Schema<ISubproject>({
     name: { type: String, required: true, maxlength: 100 },
-    description: { type: String, required: true, maxlength: 500 },
+    description: { type: String, required: true, maxlength: 300 },
     projectType: [{ type: String }],
+    customProjectType: { type: String, maxlength: 100 },
     professionalInputs: [ProfessionalInputValueSchema],
     pricing: { type: PricingSchema, required: true },
     included: [IncludedItemSchema],
@@ -269,7 +276,10 @@ const SubprojectSchema = new Schema<ISubproject>({
     executionDuration: { type: ExecutionDurationSchema, required: true },
     buffer: BufferSchema,
     intakeDuration: IntakeDurationSchema,
-    warrantyPeriod: { type: Number, min: 0, max: 10, default: 0 }
+    warrantyPeriod: {
+        value: { type: Number, min: 0, max: 10, default: 0 },
+        unit: { type: String, enum: ['months', 'years'], default: 'years' }
+    }
 });
 
 // Extra Option Schema
@@ -300,7 +310,8 @@ const RFQQuestionSchema = new Schema<IRFQQuestion>({
     question: { type: String, required: true, maxlength: 200 },
     type: { type: String, enum: ['text', 'multiple_choice', 'attachment'], required: true },
     options: [{ type: String }],
-    isRequired: { type: Boolean, default: false }
+    isRequired: { type: Boolean, default: false },
+    professionalAttachments: [{ type: String }]
 });
 
 // Post Booking Question Schema
@@ -308,7 +319,8 @@ const PostBookingQuestionSchema = new Schema<IPostBookingQuestion>({
     question: { type: String, required: true, maxlength: 200 },
     type: { type: String, enum: ['text', 'multiple_choice', 'attachment'], required: true },
     options: [{ type: String }],
-    isRequired: { type: Boolean, default: false }
+    isRequired: { type: Boolean, default: false },
+    professionalAttachments: [{ type: String }]
 });
 
 // Quality Check Schema

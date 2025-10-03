@@ -1,12 +1,12 @@
 import { Request, Response } from 'express';
 import Project from '../../models/project';
 import ServiceCategory from '../../models/serviceCategory';
-import { seedServiceCategories } from '../../scripts/seedProject';
+// import { seedServiceCategories } from '../../scripts/seedProject';
 
 export const seedData = async (req: Request, res: Response) => {
     try {
-        await seedServiceCategories();
-        res.json({ message: 'Service categories seeded successfully' });
+        // await seedServiceCategories();
+        res.json({ message: 'Service categories seeded successfully (function disabled)' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to seed service categories' });
     }

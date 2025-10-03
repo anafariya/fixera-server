@@ -23,6 +23,19 @@ import {
     getServicesByCategoryForProfessional,
     getAreasOfWork
 } from "../../handlers/Professional/serviceConfigurationHandler";
+import {
+    saveProjectDraft,
+    getProject,
+    getAllProjects,
+    submitProject,
+    deleteProject
+} from "../../handlers/Professional/projectManagement";
+import {
+    uploadProjectImage,
+    uploadProjectVideo,
+    uploadCertification,
+    uploadQuestionAttachment
+} from "../../handlers/Professional/fileUpload";
 
 const userRouter = Router();
 
@@ -64,5 +77,16 @@ userRouter.route("/service-configuration/dynamic-fields").get(getDynamicFieldsFo
 userRouter.route("/categories").get(getCategoriesForProfessional)
 userRouter.route("/services/:category").get(getServicesByCategoryForProfessional)
 userRouter.route("/areas-of-work").get(getAreasOfWork)
+
+// Project Management Routes
+userRouter.route("/projects").get(getAllProjects).post(saveProjectDraft)
+userRouter.route("/projects/:id").get(getProject).delete(deleteProject)
+userRouter.route("/projects/:id/submit").post(submitProject)
+
+// Project File Upload Routes
+userRouter.route("/projects/upload/image").post(upload.single('image'), uploadProjectImage)
+userRouter.route("/projects/upload/video").post(upload.single('video'), uploadProjectVideo)
+userRouter.route("/projects/upload/certification").post(upload.single('certification'), uploadCertification)
+userRouter.route("/projects/upload/attachment").post(upload.single('attachment'), uploadQuestionAttachment)
 
 export default userRouter;
