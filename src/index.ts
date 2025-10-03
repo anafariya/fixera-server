@@ -8,6 +8,7 @@ import authRouter from './routes/Auth';
 import userRouter from './routes/User';
 import adminRouter from './routes/Admin';
 import projectRouter from './routes/Project';
+import publicRouter from './routes/Public';
 
 dotenv.config();
 
@@ -38,6 +39,7 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // API routes
+app.use('/api/public', publicRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/user', userRouter);
 app.use('/api/admin', adminRouter);

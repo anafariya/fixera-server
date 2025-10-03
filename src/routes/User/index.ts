@@ -36,6 +36,7 @@ import {
     uploadCertification,
     uploadQuestionAttachment
 } from "../../handlers/Professional/fileUpload";
+import { validateAddress, getGoogleMapsConfig } from "../../handlers/User/googleMaps";
 
 const userRouter = Router();
 
@@ -88,5 +89,9 @@ userRouter.route("/projects/upload/image").post(upload.single('image'), uploadPr
 userRouter.route("/projects/upload/video").post(upload.single('video'), uploadProjectVideo)
 userRouter.route("/projects/upload/certification").post(upload.single('certification'), uploadCertification)
 userRouter.route("/projects/upload/attachment").post(upload.single('attachment'), uploadQuestionAttachment)
+
+// Google Maps Routes
+userRouter.route("/validate-address").post(validateAddress)
+userRouter.route("/google-maps-config").get(getGoogleMapsConfig)
 
 export default userRouter;
