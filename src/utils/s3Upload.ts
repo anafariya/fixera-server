@@ -22,16 +22,23 @@ const storage = multer.memoryStorage();
 // File filter for ID proofs (images and PDFs only)
 const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const allowedMimeTypes = [
+    // Images
     'image/jpeg',
-    'image/jpg', 
+    'image/jpg',
     'image/png',
-    'application/pdf'
+    'image/webp',
+    // Documents
+    'application/pdf',
+    // Videos
+    'video/mp4',
+    'video/quicktime', // .mov
+    'video/x-msvideo', // .avi
   ];
 
   if (allowedMimeTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only JPEG, PNG, and PDF files are allowed.'));
+    cb(new Error('Invalid file type. Allowed: JPEG, PNG, WebP, PDF, MP4, MOV, AVI'));
   }
 };
 
@@ -40,12 +47,12 @@ export const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 50 * 1024 * 1024, // 50MB limit (for videos)
   },
 });
 
 // Generate unique filename
-export const generateFileName = (originalName: string, userId: string, type: 'id-proof'): string => {
+export const generateFileName = (originalName: string, userId: string, type: string): string => {
   const ext = path.extname(originalName);
   const timestamp = Date.now();
   const randomString = crypto.randomBytes(8).toString('hex');
@@ -140,4 +147,51 @@ export const validateFile = (file: Express.Multer.File): { valid: boolean; error
   }
 
   return { valid: true };
+};
+
+// Validate image file
+export const validateImageFile = (file: Express.Multer.File): { valid: boolean; error?: string } => {
+  if (file.size > 5 * 1024 * 1024) {
+    return { valid: false, error: 'Image must be less than 5MB' };
+  }
+  const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+  if (!allowedImageTypes.includes(file.mimetype)) {
+    return { valid: false, error: 'Invalid image type' };
+  }
+  return { valid: true };
+};
+
+// Validate video file
+export const validateVideoFile = (file: Express.Multer.File): { valid: boolean; error?: string } => {
+  if (file.size > 50 * 1024 * 1024) {
+    return { valid: false, error: 'Video must be less than 50MB' };
+  }
+  const allowedVideoTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo'];
+  if (!allowedVideoTypes.includes(file.mimetype)) {
+    return { valid: false, error: 'Invalid video type. Use MP4, MOV, or AVI' };
+  }
+  return { valid: true };
+};
+
+// Validate certification file
+export const validateCertificationFile = (file: Express.Multer.File): { valid: boolean; error?: string } => {
+  if (file.size > 10 * 1024 * 1024) {
+    return { valid: false, error: 'Certification must be less than 10MB' };
+  }
+  const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
+  if (!allowedTypes.includes(file.mimetype)) {
+    return { valid: false, error: 'Certification must be PDF or image' };
+  }
+  return { valid: true };
+};
+
+// Upload project file
+export const uploadProjectFile = async (
+  file: Express.Multer.File,
+  userId: string,
+  projectId: string,
+  fileType: 'image' | 'video' | 'certification' | 'attachment'
+): Promise<{ url: string; key: string }> => {
+  const fileName = generateFileName(file.originalname, userId, `projects/${projectId}/${fileType}`);
+  return uploadToS3(file, fileName);
 };

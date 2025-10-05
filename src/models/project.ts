@@ -43,6 +43,13 @@ export interface IIncludedItem {
     isCustom: boolean;
 }
 
+export interface IMaterial {
+    name: string;
+    quantity?: string;
+    unit?: string;
+    description?: string;
+}
+
 export interface IExecutionDuration {
     value: number;
     unit: 'hours' | 'days';
@@ -69,15 +76,20 @@ export interface ISubproject {
     name: string;
     description: string;
     projectType: string[];
+    customProjectType?: string; // For "Other" option
     professionalInputs: IProfessionalInputValue[]; // Dynamic fields filled by professional
     pricing: IPricing;
     included: IIncludedItem[];
     materialsIncluded: boolean;
+    materials?: IMaterial[]; // List of materials if materialsIncluded is true
     deliveryPreparation: number;
     executionDuration: IExecutionDuration;
     buffer?: IBuffer;
     intakeDuration?: IIntakeDuration;
-    warrantyPeriod: number;
+    warrantyPeriod: {
+        value: number;
+        unit: 'months' | 'years';
+    };
 }
 
 export interface IExtraOption {
@@ -105,6 +117,7 @@ export interface IRFQQuestion {
     type: 'text' | 'multiple_choice' | 'attachment';
     options?: string[];
     isRequired: boolean;
+    professionalAttachments?: string[]; // URLs of files uploaded by professional
 }
 
 export interface IPostBookingQuestion {
@@ -112,6 +125,7 @@ export interface IPostBookingQuestion {
     type: 'text' | 'multiple_choice' | 'attachment';
     options?: string[];
     isRequired: boolean;
+    professionalAttachments?: string[]; // URLs of files uploaded by professional
 }
 
 export interface IQualityCheck {
@@ -121,20 +135,28 @@ export interface IQualityCheck {
     checkedAt: Date;
 }
 
-export interface IProject extends Document {
-    // Step 1: Basic Info
-    professionalId: string;
+export interface IServiceSelection {
     category: string;
     service: string;
     areaOfWork?: string;
+}
+
+export interface IProject extends Document {
+    // Step 1: Basic Info
+    professionalId: string;
+    category: string; // Kept for backwards compatibility (primary category)
+    service: string; // Kept for backwards compatibility (primary service)
+    areaOfWork?: string;
     serviceConfigurationId?: string; // Reference to the ServiceConfiguration
+    categories?: string[]; // Multiple categories
+    services?: IServiceSelection[]; // 3-10 services with category and area
     certifications: ICertification[];
     distance: IDistance;
     intakeMeeting?: IIntakeMeeting;
     renovationPlanning?: IRenovationPlanning;
     resources: string[];
     description: string;
-    priceModel: 'fixed' | 'meter' | 'm2' | 'hour' | 'day' | 'room';
+    priceModel: string;
     keywords: string[];
     title: string;
     media: IMedia;
@@ -227,6 +249,14 @@ const IncludedItemSchema = new Schema<IIncludedItem>({
     isCustom: { type: Boolean, default: false }
 });
 
+// Material Schema
+const MaterialSchema = new Schema<IMaterial>({
+    name: { type: String, required: true, maxlength: 200 },
+    quantity: { type: String, maxlength: 50 },
+    unit: { type: String, maxlength: 50 },
+    description: { type: String, maxlength: 500 }
+});
+
 // Execution Duration Schema
 const ExecutionDurationSchema = new Schema<IExecutionDuration>({
     value: { type: Number, required: true, min: 0 },
@@ -259,17 +289,22 @@ const ProfessionalInputValueSchema = new Schema({
 // Subproject Schema
 const SubprojectSchema = new Schema<ISubproject>({
     name: { type: String, required: true, maxlength: 100 },
-    description: { type: String, required: true, maxlength: 500 },
+    description: { type: String, required: true, maxlength: 300 },
     projectType: [{ type: String }],
+    customProjectType: { type: String, maxlength: 100 },
     professionalInputs: [ProfessionalInputValueSchema],
     pricing: { type: PricingSchema, required: true },
     included: [IncludedItemSchema],
     materialsIncluded: { type: Boolean, default: false },
+    materials: [MaterialSchema],
     deliveryPreparation: { type: Number, required: true, min: 0 },
     executionDuration: { type: ExecutionDurationSchema, required: true },
     buffer: BufferSchema,
     intakeDuration: IntakeDurationSchema,
-    warrantyPeriod: { type: Number, min: 0, max: 10, default: 0 }
+    warrantyPeriod: {
+        value: { type: Number, min: 0, max: 10, default: 0 },
+        unit: { type: String, enum: ['months', 'years'], default: 'years' }
+    }
 });
 
 // Extra Option Schema
@@ -300,7 +335,8 @@ const RFQQuestionSchema = new Schema<IRFQQuestion>({
     question: { type: String, required: true, maxlength: 200 },
     type: { type: String, enum: ['text', 'multiple_choice', 'attachment'], required: true },
     options: [{ type: String }],
-    isRequired: { type: Boolean, default: false }
+    isRequired: { type: Boolean, default: false },
+    professionalAttachments: [{ type: String }]
 });
 
 // Post Booking Question Schema
@@ -308,7 +344,8 @@ const PostBookingQuestionSchema = new Schema<IPostBookingQuestion>({
     question: { type: String, required: true, maxlength: 200 },
     type: { type: String, enum: ['text', 'multiple_choice', 'attachment'], required: true },
     options: [{ type: String }],
-    isRequired: { type: Boolean, default: false }
+    isRequired: { type: Boolean, default: false },
+    professionalAttachments: [{ type: String }]
 });
 
 // Quality Check Schema
@@ -319,6 +356,13 @@ const QualityCheckSchema = new Schema<IQualityCheck>({
     checkedAt: { type: Date, default: Date.now }
 });
 
+// Service Selection Schema
+const ServiceSelectionSchema = new Schema<IServiceSelection>({
+    category: { type: String, required: true },
+    service: { type: String, required: true },
+    areaOfWork: { type: String }
+});
+
 // Main Project Schema
 const ProjectSchema = new Schema<IProject>({
     // Step 1: Basic Info
@@ -327,6 +371,17 @@ const ProjectSchema = new Schema<IProject>({
     service: { type: String, required: true },
     areaOfWork: { type: String },
     serviceConfigurationId: { type: String },
+    categories: [{ type: String }],
+    services: {
+        type: [ServiceSelectionSchema],
+        validate: {
+            validator: function(v: IServiceSelection[]) {
+                if (!v || v.length === 0) return true; // Optional field
+                return v.length >= 3 && v.length <= 10;
+            },
+            message: 'Services must contain between 3 and 10 items'
+        }
+    },
     certifications: [CertificationSchema],
     distance: { type: DistanceSchema, required: true },
     intakeMeeting: IntakeMeetingSchema,
@@ -335,7 +390,6 @@ const ProjectSchema = new Schema<IProject>({
     description: { type: String, required: true, maxlength: 1300 },
     priceModel: {
         type: String,
-        enum: ['fixed', 'meter', 'm2', 'hour', 'day', 'room'],
         required: true
     },
     keywords: [{ type: String }],

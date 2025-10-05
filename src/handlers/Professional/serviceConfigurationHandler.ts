@@ -26,7 +26,8 @@ export const getServiceConfigurationForProfessional = async (req: Request, res: 
             filter.areaOfWork = areaOfWork;
         }
 
-        const configuration = await ServiceConfiguration.findOne(filter);
+        const configuration = await ServiceConfiguration.findOne(filter)
+            .select('category service areaOfWork pricingModel certificationRequired projectTypes professionalInputFields includedItems extraOptions conditionsAndWarnings');
 
         if (!configuration) {
             return res.status(404).json({
@@ -35,9 +36,17 @@ export const getServiceConfigurationForProfessional = async (req: Request, res: 
             });
         }
 
+        // Parse pricingModel to array - split by " or "
+        const pricingModels = configuration.pricingModel ?
+            configuration.pricingModel.split(' or ').map((m: string) => m.trim()) :
+            [];
+
         res.status(200).json({
             success: true,
-            data: configuration
+            data: {
+                ...configuration.toObject(),
+                pricingModels // Return as array of original strings from DB
+            }
         });
     } catch (error: any) {
         res.status(500).json({

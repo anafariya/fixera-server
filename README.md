@@ -30,6 +30,18 @@ FROM_EMAIL=no-reply@your-domain.com
 TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TWILIO_VERIFY_SERVICE_SID=VAXxxxxxxxxxxxxxxxxxxxxxx
+
+# Google Maps API (for address autocomplete and validation)
+GOOGLE_MAPS_API_KEY=your_google_maps_api_key
+
+# AWS S3 (for file uploads)
+AWS_ACCESS_KEY_ID=your_aws_access_key
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key
+AWS_REGION=us-east-1
+S3_BUCKET_NAME=your_bucket_name
+
+# Frontend URL (for CORS)
+FRONTEND_URL=http://localhost:3000
 ```
 
 3) Run the server (traditional long-lived process)
@@ -110,6 +122,46 @@ Base path: `/api`
 - Centralized error handler returns JSON: `{ message, stack (in dev) }`.
 - Auth and verification handlers return clear `success`/`msg` or `message` fields.
 
+## Environment Variable Setup Guide
+
+### Google Maps API Key
+
+The Google Maps API is used for address autocomplete and validation features.
+
+#### How to Get Your Google Maps API Key:
+
+1. **Create a Google Cloud Project**
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Create a new project or select an existing one
+   - Enable billing for the project (required for Maps APIs)
+
+2. **Enable Required APIs**
+   - Navigate to "APIs & Services" → "Library"
+   - Search for and enable:
+     - **Maps JavaScript API** (for address autocomplete)
+     - **Geocoding API** (for address validation)
+
+3. **Create API Key**
+   - Go to "APIs & Services" → "Credentials"
+   - Click "Create Credentials" → "API Key"
+   - Copy the generated API key
+
+4. **Secure Your API Key (Recommended)**
+   - Click on your API key to edit it
+   - Under "API restrictions":
+     - Select "Restrict key"
+     - Choose "Maps JavaScript API" and "Geocoding API"
+   - Under "Application restrictions":
+     - For production: Add your domain
+     - For development: Can leave unrestricted or add localhost
+
+5. **Add to Backend .env**
+   ```env
+   GOOGLE_MAPS_API_KEY=AIzaSy...your_key_here
+   ```
+
+**Important**: The API key should ONLY be in the backend `.env` file. The frontend fetches the Maps script and validates addresses through secure backend endpoints.
+
 ## Common Issues & Tips
 
 - CORS with credentials:
@@ -122,6 +174,11 @@ Base path: `/api`
 
 - JWT secrets:
   - Use a strong `JWT_SECRET` and rotate if needed.
+
+- Google Maps not loading:
+  - Verify `GOOGLE_MAPS_API_KEY` is set in backend `.env`
+  - Restart the backend server after adding the key
+  - Check that the required APIs are enabled in Google Cloud Console
 
 ## Development Notes
 
