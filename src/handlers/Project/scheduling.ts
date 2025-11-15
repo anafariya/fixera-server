@@ -379,6 +379,10 @@ export const getScheduleProposalsForProject = async (
   );
   const totalHours = executionHours + bufferHours;
 
+  // Separate execution and buffer for formula calculations
+  const executionDays = Math.max(1, Math.ceil(executionHours / HOURS_PER_DAY));
+  const bufferDays = Math.ceil(bufferHours / HOURS_PER_DAY);
+
   const minResources = project.minResources && project.minResources > 0
     ? project.minResources
     : 1;
@@ -484,9 +488,15 @@ export const getScheduleProposalsForProject = async (
   }
 
   // Days mode: compute duration and throughput limits.
+  // NEW FORMULA: (execution + X%) + buffer
+  // Earliest: (execution + 100%) + buffer
+  // Shortest: (execution + 20%) + buffer
   const totalDays = Math.max(1, Math.ceil(totalHours / HOURS_PER_DAY));
-  const maxThroughputEarliest = totalDays * 2; // +100%
-  const maxThroughputShortest = Math.max(totalDays, Math.floor(totalDays * 1.2)); // +20%
+  const maxThroughputEarliest = (executionDays * 2) + bufferDays; // (execution + 100%) + buffer
+  const maxThroughputShortest = Math.max(
+    totalDays,
+    Math.floor(executionDays * 1.2) + bufferDays
+  ); // (execution + 20%) + buffer
 
   let earliestProposal: TimeWindow | undefined;
   let shortestThroughputProposal: TimeWindow | undefined;
