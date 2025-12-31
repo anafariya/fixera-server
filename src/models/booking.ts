@@ -517,8 +517,18 @@ const BookingSchema = new Schema({
     }],
     windows: [{
       date: { type: Date, required: true },
-      startTime: { type: String, required: true },
-      endTime: { type: String, required: true },
+      startTime: {
+        type: String,
+        required: true,
+        trim: true,
+        match: [TIME_24H_REGEX, "Invalid time format. Expected HH:mm"],
+      },
+      endTime: {
+        type: String,
+        required: true,
+        trim: true,
+        match: [TIME_24H_REGEX, "Invalid time format. Expected HH:mm"],
+      },
       reason: { type: String, maxlength: 200 }
     }]
   },

@@ -588,8 +588,11 @@ const calculatePrepEnd = (
 
   let remainingMinutes = preparation.value * 60;
   let cursor = zonedNow;
+  const maxIterations = 366 * 2; // Guard against infinite loops
+  let iterations = 0;
 
-  while (remainingMinutes > 0) {
+  while (remainingMinutes > 0 && iterations < maxIterations) {
+    iterations += 1;
     const dayStart = startOfDayZoned(cursor);
     if (!isPrepWorkingDay(dayStart)) {
       cursor = addDaysZoned(dayStart, 1);
@@ -981,6 +984,10 @@ export const buildProjectScheduleProposalsWithData = async (
   };
 };
 
+/**
+ * Build schedule proposals by loading project and professional data from the database.
+ * This is a convenience wrapper around buildProjectScheduleProposalsWithData.
+ */
 export const buildProjectScheduleProposals = async (
   projectId: string,
   subprojectIndex?: number
@@ -990,165 +997,7 @@ export const buildProjectScheduleProposals = async (
     return null;
   }
 
-  const durations = getProjectDurations(project, subprojectIndex);
-  if (!durations || !durations.execution?.value) {
-    return null;
-  }
-
-  const availability = resolveAvailability(
-    professional.companyAvailability
-  );
-  const timeZone = professional.businessInfo?.timezone || "UTC";
-  const { isHoliday } = buildHolidayChecker(professional, timeZone);
-  const { blockedDates, blockedRanges } = await buildBlockedData(
-    project,
-    professional,
-    timeZone
-  );
-
-  const prepEnd = calculatePrepEnd(
-    durations.preparation,
-    availability,
-    timeZone,
-    isHoliday
-  );
-
-  const execution = durations.execution;
-  const executionMode = execution.unit;
-  const searchStart =
-    executionMode === "hours" ? prepEnd : startOfDayZoned(prepEnd);
-  const maxDays = 180;
-
-  let earliestBookableDate: Date | null = null;
-  let earliestProposal: ProposalWindow | undefined;
-  let shortestProposal: ProposalWindow | undefined;
-  let shortestThroughput: number | null = null;
-
-  for (let dayOffset = 0; dayOffset <= maxDays; dayOffset += 1) {
-    const currentDay = addDaysZoned(searchStart, dayOffset);
-
-    if (executionMode === "hours") {
-      const slots = getAvailableSlotsForDate(
-        currentDay,
-        execution.value,
-        availability,
-        blockedDates,
-        blockedRanges,
-        timeZone,
-        prepEnd
-      );
-
-      if (slots.length === 0) {
-        continue;
-      }
-
-      if (!earliestBookableDate) {
-        earliestBookableDate = startOfDayZoned(currentDay);
-      }
-
-      if (!earliestProposal) {
-        const slot = slots[0];
-        const startUtc = fromZonedTime(slot.startZoned, timeZone);
-        const executionEndZoned = new Date(
-          slot.startZoned.getTime() + execution.value * 60 * 60000
-        );
-        const executionEndUtc = fromZonedTime(executionEndZoned, timeZone);
-        const bufferEndZoned = calculateBufferEnd(
-          executionEndZoned,
-          durations.buffer,
-          executionMode,
-          availability,
-          blockedDates,
-          blockedRanges,
-          timeZone
-        );
-        const bufferEndUtc = fromZonedTime(bufferEndZoned, timeZone);
-        earliestProposal = {
-          start: startUtc.toISOString(),
-          end: bufferEndUtc.toISOString(),
-          executionEnd: executionEndUtc.toISOString(),
-        };
-        shortestProposal = earliestProposal;
-        break;
-      }
-    } else {
-      if (isDayBlocked(availability, currentDay, blockedDates, blockedRanges, timeZone)) {
-        continue;
-      }
-
-      if (!earliestBookableDate) {
-        earliestBookableDate = startOfDayZoned(currentDay);
-      }
-
-      const executionDays = Math.max(1, Math.ceil(execution.value));
-      const executionEndDay = advanceWorkingDays(
-        currentDay,
-        executionDays,
-        availability,
-        blockedDates,
-        blockedRanges,
-        timeZone
-      );
-      const throughputDays =
-        Math.floor(
-          (executionEndDay.getTime() - currentDay.getTime()) / (1000 * 60 * 60 * 24)
-        ) + 1;
-
-      if (!earliestProposal && throughputDays <= executionDays * 2) {
-        const executionEndUtc = fromZonedTime(executionEndDay, timeZone);
-        const bufferEndZoned = calculateBufferEnd(
-          executionEndDay,
-          durations.buffer,
-          executionMode,
-          availability,
-          blockedDates,
-          blockedRanges,
-          timeZone
-        );
-        const bufferEndUtc = fromZonedTime(bufferEndZoned, timeZone);
-        earliestProposal = {
-          start: fromZonedTime(currentDay, timeZone).toISOString(),
-          end: bufferEndUtc.toISOString(),
-          executionEnd: executionEndUtc.toISOString(),
-        };
-      }
-
-      if (throughputDays <= executionDays * 1.2) {
-        if (shortestThroughput === null || throughputDays < shortestThroughput) {
-          shortestThroughput = throughputDays;
-          const executionEndUtc = fromZonedTime(executionEndDay, timeZone);
-          const bufferEndZoned = calculateBufferEnd(
-            executionEndDay,
-            durations.buffer,
-            executionMode,
-            availability,
-            blockedDates,
-            blockedRanges,
-            timeZone
-          );
-          const bufferEndUtc = fromZonedTime(bufferEndZoned, timeZone);
-          shortestProposal = {
-            start: fromZonedTime(currentDay, timeZone).toISOString(),
-            end: bufferEndUtc.toISOString(),
-            executionEnd: executionEndUtc.toISOString(),
-          };
-        }
-      }
-
-      if (earliestProposal && shortestProposal) {
-        break;
-      }
-    }
-  }
-
-  const fallbackDate = earliestBookableDate || startOfDayZoned(prepEnd);
-
-  return {
-    mode: executionMode,
-    earliestBookableDate: fromZonedTime(fallbackDate, timeZone).toISOString(),
-    earliestProposal,
-    shortestThroughputProposal: shortestProposal,
-  };
+  return buildProjectScheduleProposalsWithData(project, professional, subprojectIndex);
 };
 
 export const validateProjectScheduleSelection = async ({
