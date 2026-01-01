@@ -205,8 +205,11 @@ async function backfillProjectGeo() {
       const existingCountryCode = typeof distance.countryCode === "string" ? distance.countryCode : null;
 
       if (!nextLocation && legacyCoords) {
-        nextLocation = buildLocation(legacyCoords);
-        fromLegacyCoords += 1;
+        const builtLocation = buildLocation(legacyCoords);
+        if (builtLocation) {
+          nextLocation = builtLocation;
+          fromLegacyCoords += 1;
+        }
       }
 
       // If we need location or country code, try geocoding
