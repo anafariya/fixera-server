@@ -457,7 +457,7 @@ const buildPerMemberBlockedData = async (
   customerBlocks?: CustomerBlocks
 ): Promise<PerMemberBlockedData> => {
   const perMemberData: PerMemberBlockedData = new Map();
-  const teamMemberIds: string[] = project.resources || [];
+  const teamMemberIds: string[] = [...(project.resources || [])];
 
   // Include professional in the team if not already included
   const professionalId = project.professionalId?.toString() || professional?._id?.toString();
