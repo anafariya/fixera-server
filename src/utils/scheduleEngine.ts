@@ -62,6 +62,15 @@ const DAY_KEYS = [
 
 const PARTIAL_BLOCK_THRESHOLD_HOURS = 4;
 
+/**
+ * Safely convert string IDs to MongoDB ObjectIds, filtering out invalid IDs.
+ */
+const toValidObjectIds = (ids: string[]): mongoose.Types.ObjectId[] => {
+  return ids
+    .filter((id) => mongoose.isValidObjectId(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+};
+
 const getTimeZoneOffsetMinutes = (date: Date, timeZone: string) => {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -362,14 +371,14 @@ const buildBlockedData = async (
   };
 
   if (teamMemberIds.length > 0) {
-    // Convert string IDs to ObjectIds for proper MongoDB matching
-    const teamMemberObjectIds = teamMemberIds.map(
-      (id: string) => new mongoose.Types.ObjectId(id)
-    );
-    bookingFilter.$or.push(
-      { assignedTeamMembers: { $in: teamMemberObjectIds } },
-      { professional: { $in: teamMemberObjectIds } }
-    );
+    // Convert string IDs to ObjectIds for proper MongoDB matching (filtering invalid IDs)
+    const teamMemberObjectIds = toValidObjectIds(teamMemberIds);
+    if (teamMemberObjectIds.length > 0) {
+      bookingFilter.$or.push(
+        { assignedTeamMembers: { $in: teamMemberObjectIds } },
+        { professional: { $in: teamMemberObjectIds } }
+      );
+    }
   }
 
   const bookings = await Booking.find(bookingFilter).select(
