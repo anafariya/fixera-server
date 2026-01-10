@@ -781,8 +781,11 @@ const computeDaysOverlapPercentage = (
   let availableDays = 0;
   let cursor = startZoned;
   let daysCounted = 0;
+  const maxIterations = 366 * 2; // Guard against infinite loops
+  let iterations = 0;
 
-  while (daysCounted < executionDays) {
+  while (daysCounted < executionDays && iterations < maxIterations) {
+    iterations++;
     // Only count working days
     if (isWorkingDay(availability, cursor)) {
       const availableCount = countAvailableResourcesForDay(
