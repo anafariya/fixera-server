@@ -1,9 +1,10 @@
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import Project from "../../models/project";
 import Booking from "../../models/booking";
 import ServiceCategory from "../../models/serviceCategory";
 import User from "../../models/user";
-import { buildProjectScheduleProposals } from "../../utils/scheduleEngine";
+import { buildProjectScheduleProposals, getResourcePolicy, type ResourcePolicy } from "../../utils/scheduleEngine";
 import { resolveAvailability } from "../../utils/availabilityHelpers";
 import { normalizePreparationDuration } from "../../utils/projectDurations";
 // import { seedServiceCategories } from '../../scripts/seedProject';
@@ -408,22 +409,69 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       }
     });
 
+    // Convert string IDs to ObjectIds for proper MongoDB matching
+    // Validate IDs before conversion to avoid runtime exceptions
+    if (!mongoose.isValidObjectId(project.professionalId)) {
+      console.error('Invalid professionalId:', project.professionalId);
+      return res.status(400).json({
+        success: false,
+        error: "Invalid professional ID in project"
+      });
+    }
+    const professionalObjectId = new mongoose.Types.ObjectId(project.professionalId);
+
+    // Filter and convert team member IDs, skipping invalid entries
+    // Handles both string IDs and existing ObjectId instances
+    const teamMemberObjectIds: mongoose.Types.ObjectId[] = [];
+    if (Array.isArray(teamMemberIds)) {
+      for (const id of teamMemberIds) {
+        if (id == null) {
+          console.warn(
+            `[getProjectTeamAvailability] Skipping null/undefined team member ID in teamMemberIds for project ${project._id}`
+          );
+          continue;
+        }
+
+        // Handle string IDs
+        if (typeof id === 'string') {
+          if (mongoose.isValidObjectId(id)) {
+            teamMemberObjectIds.push(new mongoose.Types.ObjectId(id));
+          } else {
+            console.warn(
+              `[getProjectTeamAvailability] Skipping invalid string team member ID "${id}" in teamMemberIds for project ${project._id}`
+            );
+          }
+          continue;
+        }
+
+        // Handle existing ObjectId instances or objects with toString
+        const idStr = String(id);
+        if (mongoose.isValidObjectId(idStr)) {
+          teamMemberObjectIds.push(new mongoose.Types.ObjectId(idStr));
+        } else {
+          console.warn(
+            `[getProjectTeamAvailability] Skipping invalid team member ID (type: ${typeof id}, value: ${idStr}) in teamMemberIds for project ${project._id}`
+          );
+        }
+      }
+    }
+
     const bookingFilter: any = {
       status: { $nin: ["completed", "cancelled", "refunded"] },
       scheduledStartDate: { $exists: true, $ne: null },
       $or: [
         { project: project._id },
         // Include bookings where the professional (project owner) is booked on ANY project
-        { professional: project.professionalId },
+        { professional: professionalObjectId },
         // Include bookings where the professional is assigned as a team member on OTHER projects
-        { assignedTeamMembers: project.professionalId },
+        { assignedTeamMembers: professionalObjectId },
       ],
     };
 
-    if (teamMemberIds.length > 0) {
+    if (teamMemberObjectIds.length > 0) {
       bookingFilter.$or.push(
-        { assignedTeamMembers: { $in: teamMemberIds } },
-        { professional: { $in: teamMemberIds } }
+        { assignedTeamMembers: { $in: teamMemberObjectIds } },
+        { professional: { $in: teamMemberObjectIds } }
       );
     }
 
@@ -467,11 +515,15 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       }
     });
 
+    // Build resource policy from project settings using shared helper
+    const resourcePolicy = getResourcePolicy(project);
+
     res.json({
       success: true,
       blockedDates: Array.from(allBlockedDates),
       blockedRanges: allBlockedRanges,
       blockedCategories,
+      resourcePolicy,
     });
   } catch (error) {
     console.error('Error fetching team availability:', error);

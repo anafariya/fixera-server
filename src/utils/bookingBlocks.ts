@@ -6,10 +6,24 @@ type BookingBlockedRange = { startDate: string; endDate: string; reason?: string
 export const buildBookingBlockedRanges = async (
   userId: Types.ObjectId | string
 ): Promise<BookingBlockedRange[]> => {
+  // Convert to both ObjectId and string for matching (handles mixed storage)
+  const userIdString = userId.toString();
+  let userIdObjectId: Types.ObjectId;
+  try {
+    userIdObjectId = typeof userId === 'string' ? new Types.ObjectId(userId) : userId;
+  } catch (error) {
+    throw new Error(`Invalid userId format: ${userId}`);
+  }
+
   const bookingFilter: any = {
     status: { $nin: ["completed", "cancelled", "refunded"] },
     scheduledStartDate: { $exists: true, $ne: null },
-    $or: [{ professional: userId }, { assignedTeamMembers: userId }],
+    $or: [
+      { professional: userIdObjectId },
+      { professional: userIdString },
+      { assignedTeamMembers: userIdObjectId },
+      { assignedTeamMembers: userIdString },
+    ],
     $and: [
       {
         $or: [
