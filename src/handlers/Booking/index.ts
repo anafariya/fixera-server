@@ -143,10 +143,31 @@ export const createBooking = async (req: Request, res: Response, next: NextFunct
       bookingData.professional = project.professionalId;
 
       // Assign all project resources as team members for booking
-      if (project.resources && project.resources.length > 0) {
-        bookingData.assignedTeamMembers = project.resources.map(
-          (id: string) => new mongoose.Types.ObjectId(id)
-        );
+      // Validate and normalize resource IDs, filtering out invalid entries and duplicates
+      if (project.resources && Array.isArray(project.resources) && project.resources.length > 0) {
+        const seenIds = new Set<string>();
+        const validTeamMembers: mongoose.Types.ObjectId[] = [];
+
+        for (const id of project.resources) {
+          // Skip null/undefined values
+          if (id == null) continue;
+
+          // Convert to string for validation and deduplication
+          const idStr = typeof id === 'string' ? id : String(id);
+
+          // Validate the ID format
+          if (!mongoose.isValidObjectId(idStr)) continue;
+
+          // Skip duplicates
+          if (seenIds.has(idStr)) continue;
+
+          seenIds.add(idStr);
+          validTeamMembers.push(new mongoose.Types.ObjectId(idStr));
+        }
+
+        if (validTeamMembers.length > 0) {
+          bookingData.assignedTeamMembers = validTeamMembers;
+        }
       }
 
       const rawStartDate =

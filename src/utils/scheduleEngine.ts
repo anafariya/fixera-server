@@ -48,7 +48,7 @@ type ResourcePolicy = {
   totalResources: number;
 };
 
-const DEFAULT_MIN_OVERLAP_PERCENTAGE = 90;
+export const DEFAULT_MIN_OVERLAP_PERCENTAGE = 90;
 
 const DAY_KEYS = [
   "sunday",
@@ -457,7 +457,19 @@ const buildPerMemberBlockedData = async (
   customerBlocks?: CustomerBlocks
 ): Promise<PerMemberBlockedData> => {
   const perMemberData: PerMemberBlockedData = new Map();
-  const teamMemberIds: string[] = [...(project.resources || [])];
+
+  // Normalize all resource IDs to strings up-front
+  const rawResources = project.resources || [];
+  const normalizedResources: string[] = [];
+  for (const id of rawResources) {
+    if (id == null) continue;
+    const idStr = typeof id === 'string' ? id : id.toString();
+    if (idStr && !normalizedResources.includes(idStr)) {
+      normalizedResources.push(idStr);
+    }
+  }
+
+  const teamMemberIds: string[] = [...normalizedResources];
 
   // Include professional in the team if not already included
   const professionalId = project.professionalId?.toString() || professional?._id?.toString();
@@ -544,17 +556,13 @@ const buildPerMemberBlockedData = async (
   });
 
   // Fetch bookings for each team member individually
-  // Convert string IDs to ObjectIds for proper MongoDB matching
-  const teamMemberObjectIds = teamMemberIds.map(
-    (id: string) => new mongoose.Types.ObjectId(id)
-  );
+  // Convert string IDs to ObjectIds for proper MongoDB matching, filtering invalid IDs
+  const teamMemberObjectIds = toValidObjectIds(teamMemberIds);
   const bookingFilter: any = {
     status: { $nin: ["completed", "cancelled", "refunded"] },
     scheduledStartDate: { $exists: true, $ne: null },
     $or: [
       { project: project._id },
-      { assignedTeamMembers: { $in: teamMemberObjectIds } },
-      { professional: { $in: teamMemberObjectIds } },
     ],
     $and: [
       {
@@ -565,6 +573,14 @@ const buildPerMemberBlockedData = async (
       },
     ],
   };
+
+  // Only add team member filters if we have valid ObjectIds
+  if (teamMemberObjectIds.length > 0) {
+    bookingFilter.$or.push(
+      { assignedTeamMembers: { $in: teamMemberObjectIds } },
+      { professional: { $in: teamMemberObjectIds } }
+    );
+  }
 
   const bookings = await Booking.find(bookingFilter).select(
     "scheduledStartDate scheduledExecutionEndDate scheduledBufferStartDate scheduledBufferEndDate scheduledBufferUnit executionEndDate bufferStartDate scheduledEndDate assignedTeamMembers professional status"
@@ -836,7 +852,14 @@ const computeHoursOverlapPercentage = (
 
   for (let i = 0; i < totalSamples; i++) {
     const sampleTime = new Date(startUtc.getTime() + i * sampleInterval * 60 * 1000);
-    const sampleEnd = new Date(sampleTime.getTime() + sampleInterval * 60 * 1000);
+    // Ensure sampleTime doesn't exceed endUtc
+    if (sampleTime.getTime() >= endUtc.getTime()) {
+      break;
+    }
+    // Clamp sampleEnd to not exceed endUtc
+    const sampleEnd = new Date(
+      Math.min(sampleTime.getTime() + sampleInterval * 60 * 1000, endUtc.getTime())
+    );
 
     const availableCount = countAvailableResourcesForWindow(
       perMemberBlocked,

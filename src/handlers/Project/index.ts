@@ -4,7 +4,7 @@ import Project from "../../models/project";
 import Booking from "../../models/booking";
 import ServiceCategory from "../../models/serviceCategory";
 import User from "../../models/user";
-import { buildProjectScheduleProposals } from "../../utils/scheduleEngine";
+import { buildProjectScheduleProposals, DEFAULT_MIN_OVERLAP_PERCENTAGE } from "../../utils/scheduleEngine";
 import { resolveAvailability } from "../../utils/availabilityHelpers";
 import { normalizePreparationDuration } from "../../utils/projectDurations";
 // import { seedServiceCategories } from '../../scripts/seedProject';
@@ -410,10 +410,25 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
     });
 
     // Convert string IDs to ObjectIds for proper MongoDB matching
+    // Validate IDs before conversion to avoid runtime exceptions
+    if (!mongoose.isValidObjectId(project.professionalId)) {
+      console.error('Invalid professionalId:', project.professionalId);
+      return res.status(400).json({
+        success: false,
+        error: "Invalid professional ID in project"
+      });
+    }
     const professionalObjectId = new mongoose.Types.ObjectId(project.professionalId);
-    const teamMemberObjectIds = teamMemberIds.map(
-      (id: string) => new mongoose.Types.ObjectId(id)
-    );
+
+    // Filter and convert team member IDs, skipping invalid entries
+    const teamMemberObjectIds: mongoose.Types.ObjectId[] = [];
+    if (Array.isArray(teamMemberIds)) {
+      for (const id of teamMemberIds) {
+        if (typeof id === 'string' && mongoose.isValidObjectId(id)) {
+          teamMemberObjectIds.push(new mongoose.Types.ObjectId(id));
+        }
+      }
+    }
 
     const bookingFilter: any = {
       status: { $nin: ["completed", "cancelled", "refunded"] },
@@ -481,7 +496,7 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       totalResources
     );
     const minOverlapPercentage = Math.min(
-      Math.max(project.minOverlapPercentage ?? 90, 10),
+      Math.max(project.minOverlapPercentage ?? DEFAULT_MIN_OVERLAP_PERCENTAGE, 10),
       100
     );
 
