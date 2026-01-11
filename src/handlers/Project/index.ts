@@ -4,7 +4,7 @@ import Project from "../../models/project";
 import Booking from "../../models/booking";
 import ServiceCategory from "../../models/serviceCategory";
 import User from "../../models/user";
-import { buildProjectScheduleProposals, getResourcePolicy, type ResourcePolicy } from "../../utils/scheduleEngine";
+import { buildProjectScheduleProposals, getResourcePolicy, toZonedTime, type ResourcePolicy } from "../../utils/scheduleEngine";
 import { resolveAvailability } from "../../utils/availabilityHelpers";
 import { normalizePreparationDuration } from "../../utils/projectDurations";
 // import { seedServiceCategories } from '../../scripts/seedProject';
@@ -349,21 +349,6 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
     // Get professional's timezone for proper date handling
     const timeZone = professional?.businessInfo?.timezone || 'UTC';
 
-    // Helper to get timezone offset in minutes
-    const getTimeZoneOffsetMinutes = (date: Date, tz: string): number => {
-      const utcStr = date.toLocaleString('en-US', { timeZone: 'UTC' });
-      const tzStr = date.toLocaleString('en-US', { timeZone: tz });
-      const utcTime = new Date(utcStr).getTime();
-      const tzTime = new Date(tzStr).getTime();
-      return (tzTime - utcTime) / 60000;
-    };
-
-    // Helper to convert UTC date to zoned time
-    const toZonedTime = (date: Date, tz: string): Date => {
-      const offsetMinutes = getTimeZoneOffsetMinutes(date, tz);
-      return new Date(date.getTime() + offsetMinutes * 60000);
-    };
-
     // Track blocked members per date for multi-resource logic
     // Key: date ISO string (normalized to midnight UTC), Value: Set of member IDs blocked on that date
     const dateBlockedMembers = new Map<string, Set<string>>();
@@ -528,7 +513,10 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
     );
 
     // Build set of project resources for efficient lookup
+
     const projectResources = new Set(teamMemberIds.map((id: any) => String(id)));
+    const finalBlockedDateSet = new Set<string>();
+
     const rangeIntersectsBlockedDates = (
       range: { startDate: string; endDate: string }
     ): boolean => {
@@ -616,7 +604,6 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
     console.log('[AVAILABILITY DEBUG] useMultiResourceMode:', useMultiResourceMode);
     console.log('[AVAILABILITY DEBUG] allowPartialAvailability:', allowPartialAvailability);
     console.log('[AVAILABILITY DEBUG] dateBlockedMembers size:', dateBlockedMembers.size);
-    const finalBlockedDateSet = new Set<string>();
 
     dateBlockedMembers.forEach((blockedMemberIds, dateIso) => {
       const blockedCount = blockedMemberIds.size;

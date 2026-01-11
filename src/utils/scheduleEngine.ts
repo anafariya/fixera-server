@@ -105,7 +105,7 @@ export const validateAndDedupeResourceIds = (
   return validIds;
 };
 
-const getTimeZoneOffsetMinutes = (date: Date, timeZone: string) => {
+export const getTimeZoneOffsetMinutes = (date: Date, timeZone: string) => {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
@@ -135,12 +135,12 @@ const getTimeZoneOffsetMinutes = (date: Date, timeZone: string) => {
   return (utcTime - date.getTime()) / 60000;
 };
 
-const toZonedTime = (date: Date, timeZone: string) => {
+export const toZonedTime = (date: Date, timeZone: string) => {
   const offsetMinutes = getTimeZoneOffsetMinutes(date, timeZone);
   return new Date(date.getTime() + offsetMinutes * 60000);
 };
 
-const fromZonedTime = (zonedDate: Date, timeZone: string) => {
+export const fromZonedTime = (zonedDate: Date, timeZone: string) => {
   const offsetMinutes = getTimeZoneOffsetMinutes(zonedDate, timeZone);
   return new Date(zonedDate.getTime() - offsetMinutes * 60000);
 };
