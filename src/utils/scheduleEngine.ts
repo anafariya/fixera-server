@@ -988,11 +988,11 @@ const computeHoursOverlapPercentage = (
 
 /**
  * Get resource policy from project with defaults applied.
- * totalResources includes the professional (+1) plus any additional team members.
+ * totalResources is the count of resources in the project (resources array already includes the professional).
  */
 export const getResourcePolicy = (project: any): ResourcePolicy => {
-  // Include professional in the count: resources array + 1 for the professional
-  const totalResources = (project.resources?.length || 0) + 1;
+  // Resources array already includes all team members (including the professional)
+  const totalResources = project.resources?.length || 1;
   const minResources = Math.min(
     Math.max(project.minResources || 1, 1),
     totalResources
@@ -2038,13 +2038,20 @@ export const buildProjectScheduleWindow = async ({
     // Validate and deduplicate assignedTeamMembers (all project resources)
     const assignedTeamMembers = validateAndDedupeResourceIds(project.resources);
 
+    const hasBuffer = durations.buffer?.value && durations.buffer.value > 0;
+    // Convert execution end once and reuse to avoid any precision differences
+    const executionEndUtc = fromZonedTime(executionEndZoned, timeZone);
+
     return {
       scheduledStartDate: fromZonedTime(selectedZoned, timeZone),
-      scheduledExecutionEndDate: fromZonedTime(executionEndZoned, timeZone),
-      scheduledBufferStartDate: bufferStartZoned
+      scheduledExecutionEndDate: executionEndUtc,
+      // When no buffer, buffer dates equal execution end (0 buffer duration)
+      scheduledBufferStartDate: hasBuffer && bufferStartZoned
         ? fromZonedTime(bufferStartZoned, timeZone)
-        : null,
-      scheduledBufferEndDate: fromZonedTime(bufferEndZoned, timeZone),
+        : executionEndUtc,
+      scheduledBufferEndDate: hasBuffer
+        ? fromZonedTime(bufferEndZoned, timeZone)
+        : executionEndUtc,
       scheduledBufferUnit: durations.buffer?.unit,
       scheduledStartTime: formatMinutesToTime(minutes),
       scheduledEndTime: formatMinutesToTime(
@@ -2085,7 +2092,7 @@ export const buildProjectScheduleWindow = async ({
     durations.buffer
   );
   const bufferEndZoned = calculateBufferEnd(
-    executionEndDay,
+    executionEndZoned,
     durations.buffer,
     durations.execution.unit,
     availability,
@@ -2097,13 +2104,20 @@ export const buildProjectScheduleWindow = async ({
   // Validate and deduplicate assignedTeamMembers (all project resources)
   const assignedTeamMembers = validateAndDedupeResourceIds(project.resources);
 
+  const hasBuffer = durations.buffer?.value && durations.buffer.value > 0;
+  // Convert execution end once and reuse to avoid any precision differences
+  const executionEndUtc = fromZonedTime(executionEndZoned, timeZone);
+
   return {
     scheduledStartDate: fromZonedTime(selectedZoned, timeZone),
-    scheduledExecutionEndDate: fromZonedTime(executionEndZoned, timeZone),
-    scheduledBufferStartDate: bufferStartZoned
+    scheduledExecutionEndDate: executionEndUtc,
+    // When no buffer, buffer dates equal execution end (0 buffer duration)
+    scheduledBufferStartDate: hasBuffer && bufferStartZoned
       ? fromZonedTime(bufferStartZoned, timeZone)
-      : null,
-    scheduledBufferEndDate: fromZonedTime(bufferEndZoned, timeZone),
+      : executionEndUtc,
+    scheduledBufferEndDate: hasBuffer
+      ? fromZonedTime(bufferEndZoned, timeZone)
+      : executionEndUtc,
     scheduledBufferUnit: durations.buffer?.unit,
     assignedTeamMembers,
   };

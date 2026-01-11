@@ -235,7 +235,9 @@ export const createBooking = async (req: Request, res: Response, next: NextFunct
         if (window.scheduledBufferStartDate) {
           bookingData.scheduledBufferStartDate = window.scheduledBufferStartDate;
         }
-        bookingData.scheduledBufferEndDate = window.scheduledBufferEndDate;
+        if (window.scheduledBufferEndDate) {
+          bookingData.scheduledBufferEndDate = window.scheduledBufferEndDate;
+        }
         if (window.scheduledBufferUnit) {
           bookingData.scheduledBufferUnit = window.scheduledBufferUnit;
         }
