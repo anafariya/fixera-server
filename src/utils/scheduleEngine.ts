@@ -984,20 +984,50 @@ const computeHoursOverlapPercentage = (
 const getRequiredOverlapPercentage = (resourcePolicy: ResourcePolicy): number =>
   resourcePolicy.minResources <= 1 ? 100 : resourcePolicy.minOverlapPercentage;
 
+const binomial = (n: number, k: number): number => {
+  if (k < 0 || k > n) return 0;
+  if (k === 0 || k === n) return 1;
+  if (k > n - k) k = n - k;
+
+  let result = 1;
+  for (let i = 0; i < k; i++) {
+    result = (result * (n - i)) / (i + 1);
+    if (result > Number.MAX_SAFE_INTEGER) return Infinity;
+  }
+  return Math.round(result);
+};
+
+const DEFAULT_MAX_COMBINATIONS = 10000;
+
 const forEachSubset = (
   resourceIds: string[],
   subsetSize: number,
-  callback: (subset: string[]) => boolean
+  callback: (subset: string[]) => boolean,
+  maxIterations: number = DEFAULT_MAX_COMBINATIONS
 ): boolean => {
   if (subsetSize <= 0 || resourceIds.length < subsetSize) {
     return false;
   }
 
+  const totalCombinations = binomial(resourceIds.length, subsetSize);
+  if (totalCombinations > maxIterations) {
+    console.warn(
+      `forEachSubset: combination count (${totalCombinations}) exceeds maxIterations (${maxIterations}). ` +
+        `Aborting enumeration to prevent combinatorial explosion.`
+    );
+    return false;
+  }
+
   const subset: string[] = [];
   const maxStart = resourceIds.length;
+  let iterationCount = 0;
 
   const walk = (startIndex: number): boolean => {
     if (subset.length === subsetSize) {
+      iterationCount++;
+      if (iterationCount > maxIterations) {
+        return false;
+      }
       return callback([...subset]);
     }
 
