@@ -91,6 +91,40 @@ const buildWeekendDates = (
   return weekends;
 };
 
+/**
+ * Parse and validate subprojectIndex query parameter.
+ * Returns a validated index or an error indicator for consistent 400 responses.
+ */
+type SubprojectIndexResult =
+  | { valid: true; index: number | undefined }
+  | { valid: false; error: string };
+
+const parseSubprojectIndex = (
+  subprojectIndexRaw: string | undefined,
+  subprojectsLength: number
+): SubprojectIndexResult => {
+  if (subprojectIndexRaw === undefined) {
+    return { valid: true, index: undefined };
+  }
+
+  const parsed = Number(subprojectIndexRaw);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    return {
+      valid: false,
+      error: "Invalid subprojectIndex: expected a whole number.",
+    };
+  }
+
+  if (parsed < 0 || parsed >= subprojectsLength) {
+    return {
+      valid: false,
+      error: "Invalid subprojectIndex: out of range for this project.",
+    };
+  }
+
+  return { valid: true, index: parsed };
+};
+
 export const seedData = async (req: Request, res: Response) => {
   try {
     // await seedServiceCategories();
@@ -334,7 +368,6 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
         req.query.debug.toLowerCase() === "true") ||
       (process.env.DEBUG_PAYLOAD_SECRET &&
         req.headers["x-debug-payload"] === process.env.DEBUG_PAYLOAD_SECRET);
-    let subprojectIndex: number | undefined;
 
     const project = await Project.findOne({
       _id: id,
@@ -351,22 +384,17 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
     const subprojects = Array.isArray(project.subprojects)
       ? project.subprojects
       : [];
-    if (typeof subprojectIndexRaw === "string") {
-      const parsed = Number(subprojectIndexRaw);
-      if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
-        return res.status(400).json({
-          success: false,
-          error: "Invalid subprojectIndex: expected a whole number.",
-        });
-      }
-      if (parsed < 0 || parsed >= subprojects.length) {
-        return res.status(400).json({
-          success: false,
-          error: "Invalid subprojectIndex: out of range for this project.",
-        });
-      }
-      subprojectIndex = parsed;
+    const subprojectIndexResult = parseSubprojectIndex(
+      subprojectIndexRaw,
+      subprojects.length
+    );
+    if (!subprojectIndexResult.valid) {
+      return res.status(400).json({
+        success: false,
+        error: subprojectIndexResult.error,
+      });
     }
+    const subprojectIndex = subprojectIndexResult.index;
 
     const teamMemberIds = project.resources || [];
 
@@ -1090,8 +1118,7 @@ export const getProjectWorkingHours = async (req: Request, res: Response) => {
 export const getProjectScheduleProposals = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const subprojectIndexRaw = req.query.subprojectIndex;
-    let subprojectIndex: number | undefined;
+    const subprojectIndexRaw = req.query.subprojectIndex as string | undefined;
 
     const project = await Project.findById(id).select("subprojects");
     if (!project) {
@@ -1104,22 +1131,17 @@ export const getProjectScheduleProposals = async (req: Request, res: Response) =
     const subprojects = Array.isArray(project.subprojects)
       ? project.subprojects
       : [];
-    if (typeof subprojectIndexRaw === "string") {
-      const parsed = Number(subprojectIndexRaw);
-      if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
-        return res.status(400).json({
-          success: false,
-          error: "Invalid subprojectIndex: expected a whole number.",
-        });
-      }
-      if (parsed < 0 || parsed >= subprojects.length) {
-        return res.status(400).json({
-          success: false,
-          error: "Invalid subprojectIndex: out of range for this project.",
-        });
-      }
-      subprojectIndex = parsed;
+    const subprojectIndexResult = parseSubprojectIndex(
+      subprojectIndexRaw,
+      subprojects.length
+    );
+    if (!subprojectIndexResult.valid) {
+      return res.status(400).json({
+        success: false,
+        error: subprojectIndexResult.error,
+      });
     }
+    const subprojectIndex = subprojectIndexResult.index;
 
     const proposals = await buildProjectScheduleProposals(id, subprojectIndex);
 
