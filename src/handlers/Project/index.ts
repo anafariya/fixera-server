@@ -5,7 +5,7 @@ import Project from "../../models/project";
 import Booking from "../../models/booking";
 import ServiceCategory from "../../models/serviceCategory";
 import User from "../../models/user";
-import { buildProjectScheduleProposals, getResourcePolicy, toZonedTime, type ResourcePolicy } from "../../utils/scheduleEngine";
+import { buildProjectScheduleProposals, getResourcePolicy, toZonedTime, fromZonedTime, type ResourcePolicy } from "../../utils/scheduleEngine";
 import { resolveAvailability } from "../../utils/availabilityHelpers";
 import { normalizePreparationDuration } from "../../utils/projectDurations";
 // import { seedServiceCategories } from '../../scripts/seedProject';
@@ -57,15 +57,36 @@ const getDateRange = (start?: string, end?: string, fallbackDays = 180) => {
   return { rangeStart, rangeEnd };
 };
 
-const buildWeekendDates = (rangeStart: Date, rangeEnd: Date) => {
+const toLocalMidnightUtc = (date: Date, timeZone: string) => {
+  const zoned = toZonedTime(date, timeZone);
+  const localMidnightZoned = new Date(
+    Date.UTC(
+      zoned.getUTCFullYear(),
+      zoned.getUTCMonth(),
+      zoned.getUTCDate(),
+      0,
+      0,
+      0,
+      0
+    )
+  );
+  return fromZonedTime(localMidnightZoned, timeZone);
+};
+
+const buildWeekendDates = (
+  rangeStart: Date,
+  rangeEnd: Date,
+  timeZone: string
+) => {
   const weekends: string[] = [];
   const cursor = new Date(rangeStart);
   while (cursor <= rangeEnd) {
-    const day = cursor.getDay();
+    const zoned = toZonedTime(cursor, timeZone);
+    const day = zoned.getUTCDay();
     if (day === 0 || day === 6) {
-      weekends.push(cursor.toISOString());
+      weekends.push(toLocalMidnightUtc(cursor, timeZone).toISOString());
     }
-    cursor.setDate(cursor.getDate() + 1);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return weekends;
 };
@@ -307,7 +328,13 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
     const startDate = req.query.startDate as string | undefined;
     const endDate = req.query.endDate as string | undefined;
     const subprojectIndexRaw = req.query.subprojectIndex as string | undefined;
-    const subprojectIndex = subprojectIndexRaw !== undefined ? parseInt(subprojectIndexRaw, 10) : undefined;
+    const debugEnabled =
+      process.env.ENABLE_DEBUG_PAYLOAD === "true" ||
+      (typeof req.query.debug === "string" &&
+        req.query.debug.toLowerCase() === "true") ||
+      (process.env.DEBUG_PAYLOAD_SECRET &&
+        req.headers["x-debug-payload"] === process.env.DEBUG_PAYLOAD_SECRET);
+    let subprojectIndex: number | undefined;
 
     const project = await Project.findOne({
       _id: id,
@@ -321,14 +348,37 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       });
     }
 
+    const subprojects = Array.isArray(project.subprojects)
+      ? project.subprojects
+      : [];
+    if (typeof subprojectIndexRaw === "string") {
+      const parsed = Number(subprojectIndexRaw);
+      if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid subprojectIndex: expected a whole number.",
+        });
+      }
+      if (parsed < 0 || parsed >= subprojects.length) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid subprojectIndex: out of range for this project.",
+        });
+      }
+      subprojectIndex = parsed;
+    }
+
     const teamMemberIds = project.resources || [];
 
     const professional = await User.findById(project.professionalId).select(
       "companyAvailability companyBlockedDates companyBlockedRanges blockedDates blockedRanges businessInfo.timezone"
     );
 
+    // Get professional's timezone for proper date handling
+    const timeZone = professional?.businessInfo?.timezone || "UTC";
+
     const { rangeStart, rangeEnd } = getDateRange(startDate, endDate, 180);
-    const weekendDates = buildWeekendDates(rangeStart, rangeEnd);
+    const weekendDates = buildWeekendDates(rangeStart, rangeEnd, timeZone);
 
     const blockedCategories = {
       weekends: weekendDates,
@@ -345,26 +395,25 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       },
     };
 
+    // Helper to normalize a date key to the professional's local midnight
+    const normalizeDateKey = (dateIso: string): string => {
+      const date = new Date(dateIso);
+      if (Number.isNaN(date.getTime())) return "";
+      return toLocalMidnightUtc(date, timeZone).toISOString();
+    };
+
     // Get resource policy to determine if we need multi-resource logic
     const resourcePolicy = getResourcePolicy(project);
     const { minResources, totalResources } = resourcePolicy;
 
-    // Get professional's timezone for proper date handling
-    const timeZone = professional?.businessInfo?.timezone || 'UTC';
-
     // Track blocked members per date for multi-resource logic
-    // Key: date ISO string (normalized to midnight UTC), Value: Set of member IDs blocked on that date
+    // Key: date ISO string (normalized to local midnight UTC), Value: Set of member IDs blocked on that date
     const dateBlockedMembers = new Map<string, Set<string>>();
-
-    // Helper to normalize date to midnight UTC ISO string
-    const normalizeDateKey = (dateIso: string): string => {
-      const d = new Date(dateIso);
-      return d.toISOString().split('T')[0] + 'T00:00:00.000Z';
-    };
 
     // Helper to mark a member as blocked on a date
     const markMemberBlocked = (dateIso: string, memberId: string) => {
       const dateKey = normalizeDateKey(dateIso);
+      if (!dateKey) return;
       if (!dateBlockedMembers.has(dateKey)) {
         dateBlockedMembers.set(dateKey, new Set());
       }
@@ -401,7 +450,10 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
         const date = toIsoDate(blocked.date);
         if (!date) return;
         blockedCategories.company.dates.push(date);
-        allBlockedDates.add(date); // Company dates always fully blocked
+        const normalizedDate = normalizeDateKey(date);
+        if (normalizedDate) {
+          allBlockedDates.add(normalizedDate); // Company dates always fully blocked
+        }
       });
     }
 
@@ -414,25 +466,41 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       });
     }
 
-    // Fetch team members (include name for debugging)
+    // Fetch team members (name only needed for debug payloads)
     const teamMembers =
       teamMemberIds.length > 0
         ? await User.find({
           _id: { $in: teamMemberIds },
-        }).select("_id name blockedDates blockedRanges")
+        }).select(
+          debugEnabled
+            ? "_id name blockedDates blockedRanges"
+            : "_id blockedDates blockedRanges"
+        )
         : [];
 
-    // Build debug info for team members
-    const teamMemberDebugInfo: Record<string, { name: string; personalBlockedDates: string[]; personalBlockedRanges: any[]; bookingBlockedDates: string[] }> = {};
-    teamMembers.forEach((member) => {
-      const memberId = String(member._id);
-      teamMemberDebugInfo[memberId] = {
-        name: (member as any).name || 'Unknown',
-        personalBlockedDates: [],
-        personalBlockedRanges: [],
-        bookingBlockedDates: [],
-      };
-    });
+    type TeamMemberDebugInfo = Record<
+      string,
+      {
+        name: string;
+        personalBlockedDates: string[];
+        personalBlockedRanges: any[];
+        bookingBlockedDates: string[];
+      }
+    >;
+    const teamMemberDebugInfo: TeamMemberDebugInfo | null = debugEnabled
+      ? {}
+      : null;
+    if (debugEnabled) {
+      teamMembers.forEach((member) => {
+        const memberId = String(member._id);
+        teamMemberDebugInfo![memberId] = {
+          name: (member as any).name || "Unknown",
+          personalBlockedDates: [],
+          personalBlockedRanges: [],
+          bookingBlockedDates: [],
+        };
+      });
+    }
 
     // Process personal blocked dates for each team member (tracked per-member)
     teamMembers.forEach((member) => {
@@ -445,7 +513,7 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
           blockedCategories.personal.dates.push(date);
           markMemberBlocked(date, memberId);
           // Add to debug info
-          if (teamMemberDebugInfo[memberId]) {
+          if (debugEnabled && teamMemberDebugInfo?.[memberId]) {
             teamMemberDebugInfo[memberId].personalBlockedDates.push(date);
           }
         });
@@ -458,7 +526,7 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
           blockedCategories.personal.ranges.push(blockedRange);
           expandRangeAndMarkBlocked(blockedRange.startDate, blockedRange.endDate, memberId);
           // Add to debug info
-          if (teamMemberDebugInfo[memberId]) {
+          if (debugEnabled && teamMemberDebugInfo?.[memberId]) {
             teamMemberDebugInfo[memberId].personalBlockedRanges.push(blockedRange);
           }
         });
@@ -543,14 +611,16 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
     const rangeIntersectsBlockedDates = (
       range: { startDate: string; endDate: string }
     ): boolean => {
-      const start = new Date(range.startDate);
-      const end = new Date(range.endDate);
+      const startKey = normalizeDateKey(range.startDate);
+      const endKey = normalizeDateKey(range.endDate);
+      if (!startKey || !endKey) return false;
+      const start = new Date(startKey);
+      const end = new Date(endKey);
 
       const cursor = new Date(start);
-      cursor.setUTCHours(0, 0, 0, 0);
 
       while (cursor <= end) {
-        const key = cursor.toISOString().split('T')[0] + 'T00:00:00.000Z';
+        const key = normalizeDateKey(cursor.toISOString());
         if (finalBlockedDateSet.has(key)) {
           return true;
         }
@@ -567,7 +637,7 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       scheduledEnd: string | null;
       blockedMembers: string[];
       blockedMemberNames: string[];
-    }> = [];
+    }> | null = debugEnabled ? [] : null;
 
     // Track which bookings block which resources
     bookings.forEach((booking) => {
@@ -593,13 +663,15 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       }
 
       // Add to bookings debug info
-      if (blockedResourceIds.length > 0) {
+      if (debugEnabled && bookingsDebugInfo && blockedResourceIds.length > 0) {
         bookingsDebugInfo.push({
           bookingId: String(booking._id),
           scheduledStart: booking.scheduledStartDate ? toIsoDate(booking.scheduledStartDate) : null,
           scheduledEnd: scheduledExecutionEndDate ? toIsoDate(scheduledExecutionEndDate) : null,
           blockedMembers: blockedResourceIds,
-          blockedMemberNames: blockedResourceIds.map(id => teamMemberDebugInfo[id]?.name || 'Unknown'),
+          blockedMemberNames: blockedResourceIds.map(
+            (id) => teamMemberDebugInfo?.[id]?.name || "Unknown"
+          ),
         });
       }
 
@@ -616,12 +688,17 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
           blockedResourceIds.forEach((resourceId) => {
             expandRangeAndMarkBlocked(blockedRange.startDate, blockedRange.endDate, resourceId);
             // Add blocked dates to debug info
-            if (teamMemberDebugInfo[resourceId]) {
+            if (debugEnabled && teamMemberDebugInfo?.[resourceId]) {
               const start = new Date(blockedRange.startDate);
               const end = new Date(blockedRange.endDate);
               const cursor = new Date(start);
               while (cursor <= end) {
-                teamMemberDebugInfo[resourceId].bookingBlockedDates.push(cursor.toISOString().split('T')[0]);
+                const bookingDateKey = normalizeDateKey(cursor.toISOString());
+                if (bookingDateKey) {
+                  teamMemberDebugInfo[resourceId].bookingBlockedDates.push(
+                    bookingDateKey.split("T")[0]
+                  );
+                }
                 cursor.setUTCDate(cursor.getUTCDate() + 1);
               }
             }
@@ -673,7 +750,6 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
 
     // If subprojectIndex is provided, use that specific subproject's execution duration
     if (typeof subprojectIndex === 'number' &&
-        !Number.isNaN(subprojectIndex) &&
         projectData.subprojects &&
         Array.isArray(projectData.subprojects) &&
         projectData.subprojects[subprojectIndex]?.executionDuration?.value &&
@@ -700,15 +776,18 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
 
     // Helper to check if a date is a working day (not weekend, not company blocked)
     const isWorkingDay = (dateKey: string): boolean => {
+      const normalizedKey = normalizeDateKey(dateKey);
+      if (!normalizedKey) return false;
       // Check if it's in weekend dates
-      if (weekendDates.includes(dateKey)) return false;
+      if (weekendDates.includes(normalizedKey)) return false;
 
       // Check company blocked dates
-      if (blockedCategories.company.dates.some(d => normalizeDateKey(d) === dateKey)) return false;
+      if (blockedCategories.company.dates.some(d => normalizeDateKey(d) === normalizedKey)) return false;
 
       // Check working hours availability
-      const date = new Date(dateKey);
-      const dayOfWeek = date.getUTCDay();
+      const date = new Date(normalizedKey);
+      const zoned = toZonedTime(date, timeZone);
+      const dayOfWeek = zoned.getUTCDay();
       const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
       const dayAvailability = availability[dayNames[dayOfWeek]];
       if (!dayAvailability || dayAvailability.available === false) return false;
@@ -726,10 +805,26 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
     // Helper to count working days between two dates (inclusive) for throughput calculation
     // This counts calendar working days (e.g., Mon-Fri), regardless of blocked status
     const countWorkingDaysBetween = (startDateKey: string, endDateKey: string): number => {
-      const start = new Date(startDateKey);
-      const end = new Date(endDateKey);
+      const startKey = normalizeDateKey(startDateKey);
+      const endKey = normalizeDateKey(endDateKey);
+      if (!startKey || !endKey) return 0;
+      const start = new Date(startKey);
+      const end = new Date(endKey);
       let count = 0;
-      const maxIterations = 366 * 2; // Guard against infinite loops
+      const MS_PER_DAY = 24 * 60 * 60 * 1000;
+      const startUtcDay = Date.UTC(
+        start.getUTCFullYear(),
+        start.getUTCMonth(),
+        start.getUTCDate()
+      );
+      const endUtcDay = Date.UTC(
+        end.getUTCFullYear(),
+        end.getUTCMonth(),
+        end.getUTCDate()
+      );
+      const actualDaySpan = Math.max(0, Math.floor((endUtcDay - startUtcDay) / MS_PER_DAY));
+      const SAFETY_CAP_DAYS = 366 * 5;
+      const maxIterations = Math.min(actualDaySpan + 1, SAFETY_CAP_DAYS);
       let iterations = 0;
 
       const cursor = new Date(start);
@@ -884,12 +979,8 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       resourcePolicy,
     };
 
-    // Only include _debug payload when explicitly enabled via environment variable or debug header
-    const debugEnabled =
-      process.env.ENABLE_DEBUG_PAYLOAD === 'true' ||
-      req.headers['x-debug-payload'] === process.env.DEBUG_PAYLOAD_SECRET;
-
-    if (debugEnabled && process.env.DEBUG_PAYLOAD_SECRET) {
+    // Only include _debug payload when explicitly enabled
+    if (debugEnabled && teamMemberDebugInfo && bookingsDebugInfo) {
       // Build anonymization mapping: real member ID -> anonymized token
       const memberIdToToken = new Map<string, string>();
       let tokenCounter = 1;
@@ -1002,11 +1093,32 @@ export const getProjectScheduleProposals = async (req: Request, res: Response) =
     const subprojectIndexRaw = req.query.subprojectIndex;
     let subprojectIndex: number | undefined;
 
+    const project = await Project.findById(id).select("subprojects");
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        error: "Project not found",
+      });
+    }
+
+    const subprojects = Array.isArray(project.subprojects)
+      ? project.subprojects
+      : [];
     if (typeof subprojectIndexRaw === "string") {
-      const parsed = Number.parseInt(subprojectIndexRaw, 10);
-      if (!Number.isNaN(parsed)) {
-        subprojectIndex = parsed;
+      const parsed = Number(subprojectIndexRaw);
+      if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid subprojectIndex: expected a whole number.",
+        });
       }
+      if (parsed < 0 || parsed >= subprojects.length) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid subprojectIndex: out of range for this project.",
+        });
+      }
+      subprojectIndex = parsed;
     }
 
     const proposals = await buildProjectScheduleProposals(id, subprojectIndex);
