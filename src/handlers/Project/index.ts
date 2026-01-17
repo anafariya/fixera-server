@@ -398,6 +398,42 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
 
     const teamMemberIds = project.resources || [];
 
+    // Validate and convert team member IDs once, before any queries
+    // This prevents Mongoose CastError when project.resources contains invalid ObjectIds
+    const validatedTeamMemberIds: mongoose.Types.ObjectId[] = [];
+    if (Array.isArray(teamMemberIds)) {
+      for (const id of teamMemberIds) {
+        if (id == null) {
+          console.warn(
+            `[getProjectTeamAvailability] Skipping null/undefined team member ID in project.resources for project ${project._id}`
+          );
+          continue;
+        }
+
+        // Handle string IDs
+        if (typeof id === 'string') {
+          if (mongoose.isValidObjectId(id)) {
+            validatedTeamMemberIds.push(new mongoose.Types.ObjectId(id));
+          } else {
+            console.warn(
+              `[getProjectTeamAvailability] Skipping invalid string team member ID "${id}" in project.resources for project ${project._id}`
+            );
+          }
+          continue;
+        }
+
+        // Handle existing ObjectId instances or objects with toString
+        const idStr = String(id);
+        if (mongoose.isValidObjectId(idStr)) {
+          validatedTeamMemberIds.push(new mongoose.Types.ObjectId(idStr));
+        } else {
+          console.warn(
+            `[getProjectTeamAvailability] Skipping invalid team member ID (type: ${typeof id}, value: ${idStr}) in project.resources for project ${project._id}`
+          );
+        }
+      }
+    }
+
     const professional = await User.findById(project.professionalId).select(
       "companyAvailability companyBlockedDates companyBlockedRanges blockedDates blockedRanges businessInfo.timezone"
     );
@@ -496,9 +532,9 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
 
     // Fetch team members (name only needed for debug payloads)
     const teamMembers =
-      teamMemberIds.length > 0
+      validatedTeamMemberIds.length > 0
         ? await User.find({
-          _id: { $in: teamMemberIds },
+          _id: { $in: validatedTeamMemberIds },
         }).select(
           debugEnabled
             ? "_id name blockedDates blockedRanges"
@@ -572,42 +608,6 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
     }
     const professionalObjectId = new mongoose.Types.ObjectId(project.professionalId);
 
-    // Filter and convert team member IDs, skipping invalid entries
-    // Handles both string IDs and existing ObjectId instances
-    const teamMemberObjectIds: mongoose.Types.ObjectId[] = [];
-    if (Array.isArray(teamMemberIds)) {
-      for (const id of teamMemberIds) {
-        if (id == null) {
-          console.warn(
-            `[getProjectTeamAvailability] Skipping null/undefined team member ID in teamMemberIds for project ${project._id}`
-          );
-          continue;
-        }
-
-        // Handle string IDs
-        if (typeof id === 'string') {
-          if (mongoose.isValidObjectId(id)) {
-            teamMemberObjectIds.push(new mongoose.Types.ObjectId(id));
-          } else {
-            console.warn(
-              `[getProjectTeamAvailability] Skipping invalid string team member ID "${id}" in teamMemberIds for project ${project._id}`
-            );
-          }
-          continue;
-        }
-
-        // Handle existing ObjectId instances or objects with toString
-        const idStr = String(id);
-        if (mongoose.isValidObjectId(idStr)) {
-          teamMemberObjectIds.push(new mongoose.Types.ObjectId(idStr));
-        } else {
-          console.warn(
-            `[getProjectTeamAvailability] Skipping invalid team member ID (type: ${typeof id}, value: ${idStr}) in teamMemberIds for project ${project._id}`
-          );
-        }
-      }
-    }
-
     const bookingFilter: any = {
       status: { $nin: ["completed", "cancelled", "refunded"] },
       scheduledStartDate: { $exists: true, $ne: null },
@@ -620,10 +620,10 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       ],
     };
 
-    if (teamMemberObjectIds.length > 0) {
+    if (validatedTeamMemberIds.length > 0) {
       bookingFilter.$or.push(
-        { assignedTeamMembers: { $in: teamMemberObjectIds } },
-        { professional: { $in: teamMemberObjectIds } }
+        { assignedTeamMembers: { $in: validatedTeamMemberIds } },
+        { professional: { $in: validatedTeamMemberIds } }
       );
     }
 
@@ -631,9 +631,8 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       "scheduledStartDate scheduledExecutionEndDate scheduledBufferStartDate scheduledBufferEndDate scheduledBufferUnit executionEndDate bufferStartDate scheduledEndDate status assignedTeamMembers professional"
     );
 
-    // Build set of project resources for efficient lookup
-
-    const projectResources = new Set(teamMemberIds.map((id: any) => String(id)));
+    // Build set of project resources for efficient lookup (using validated IDs)
+    const projectResources = new Set(validatedTeamMemberIds.map((id) => String(id)));
     const finalBlockedDateSet = new Set<string>();
 
     const rangeIntersectsBlockedDates = (
