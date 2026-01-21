@@ -1,9 +1,9 @@
 import mongoose from "mongoose";
 import User from "../models/user";
 import Meeting from "../models/meeting";
-import dotenv from "dotenv";
+import { config } from "dotenv";
 
-dotenv.config();
+config();
 
 /**
  * Migration script to fix role inconsistency.
@@ -20,7 +20,9 @@ async function migrateTeamMemberToEmployee() {
     // Connect to MongoDB
     const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
     if (!mongoUri) {
-      throw new Error("MONGO_URI or MONGODB_URI not found in environment variables");
+      throw new Error(
+        "MONGO_URI or MONGODB_URI not found in environment variables",
+      );
     }
 
     await mongoose.connect(mongoUri);
@@ -36,16 +38,20 @@ async function migrateTeamMemberToEmployee() {
 
     // Find all users with role "team_member"
     const usersWithTeamMemberRole = await User.find({ role: "team_member" });
-    console.log(`Found ${usersWithTeamMemberRole.length} users with role "team_member"`);
+    console.log(
+      `Found ${usersWithTeamMemberRole.length} users with role "team_member"`,
+    );
 
     if (usersWithTeamMemberRole.length > 0) {
       // Update all users with team_member role to employee
       const userUpdateResult = await User.updateMany(
         { role: "team_member" },
-        { $set: { role: "employee" } }
+        { $set: { role: "employee" } },
       );
       usersMigrated = userUpdateResult.modifiedCount;
-      console.log(`Updated ${usersMigrated} users from "team_member" to "employee"`);
+      console.log(
+        `Updated ${usersMigrated} users from "team_member" to "employee"`,
+      );
 
       // Log affected user IDs for audit
       console.log("Affected user IDs:");
@@ -63,16 +69,18 @@ async function migrateTeamMemberToEmployee() {
 
     // Find all meetings that have attendees with role "team_member"
     const meetingsWithTeamMember = await Meeting.find({
-      "attendees.role": "team_member"
+      "attendees.role": "team_member",
     });
-    console.log(`Found ${meetingsWithTeamMember.length} meetings with "team_member" attendees`);
+    console.log(
+      `Found ${meetingsWithTeamMember.length} meetings with "team_member" attendees`,
+    );
 
     if (meetingsWithTeamMember.length > 0) {
       // Update all meeting attendees with team_member role to employee
       const meetingUpdateResult = await Meeting.updateMany(
         { "attendees.role": "team_member" },
         { $set: { "attendees.$[elem].role": "employee" } },
-        { arrayFilters: [{ "elem.role": "team_member" }] }
+        { arrayFilters: [{ "elem.role": "team_member" }] },
       );
       meetingsMigrated = meetingUpdateResult.modifiedCount;
       console.log(`Updated ${meetingsMigrated} meetings`);
@@ -81,9 +89,11 @@ async function migrateTeamMemberToEmployee() {
       console.log("Affected meeting IDs:");
       meetingsWithTeamMember.forEach((meeting) => {
         const teamMemberAttendees = meeting.attendees.filter(
-          (a) => (a.role as string) === "team_member"
+          (a) => (a.role as string) === "team_member",
         );
-        console.log(`  - Meeting ${meeting._id}: ${teamMemberAttendees.length} attendees updated`);
+        console.log(
+          `  - Meeting ${meeting._id}: ${teamMemberAttendees.length} attendees updated`,
+        );
       });
     } else {
       console.log("No meetings found with 'team_member' attendees");
@@ -97,7 +107,9 @@ async function migrateTeamMemberToEmployee() {
     console.log(`  Meetings migrated: ${meetingsMigrated}`);
 
     if (usersMigrated === 0 && meetingsMigrated === 0) {
-      console.log("\nNo data needed migration. Database is already consistent.");
+      console.log(
+        "\nNo data needed migration. Database is already consistent.",
+      );
     } else {
       console.log("\nMigration completed successfully!");
     }
@@ -105,12 +117,18 @@ async function migrateTeamMemberToEmployee() {
     // Verify no team_member roles remain
     console.log("\n--- Verification ---");
     const remainingUsers = await User.countDocuments({ role: "team_member" });
-    const remainingMeetings = await Meeting.countDocuments({ "attendees.role": "team_member" });
+    const remainingMeetings = await Meeting.countDocuments({
+      "attendees.role": "team_member",
+    });
 
     if (remainingUsers === 0 && remainingMeetings === 0) {
-      console.log("Verification passed: No 'team_member' roles remaining in database");
+      console.log(
+        "Verification passed: No 'team_member' roles remaining in database",
+      );
     } else {
-      console.log(`WARNING: Found ${remainingUsers} users and ${remainingMeetings} meetings still with 'team_member' role`);
+      console.log(
+        `WARNING: Found ${remainingUsers} users and ${remainingMeetings} meetings still with 'team_member' role`,
+      );
     }
 
     // Disconnect
