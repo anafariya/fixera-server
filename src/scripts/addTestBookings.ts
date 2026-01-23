@@ -120,8 +120,9 @@ async function main() {
     const createdBookings: string[] = [];
 
     for (const bookingData of bookingsToCreate) {
-      // Check if booking already exists
+      // Check if booking already exists for this specific project
       const existingBooking = await Booking.findOne({
+        project: project._id,
         assignedTeamMembers: professionalToBlock._id,
         scheduledStartDate: bookingData.startDate,
         status: { $nin: ["completed", "cancelled", "refunded"] },
