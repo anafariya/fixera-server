@@ -7,6 +7,7 @@ import { sendTeamMemberInvitationEmail } from "../../utils/emailService";
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { buildBookingBlockedRanges } from '../../utils/bookingBlocks';
+import { toISOString } from '../../utils/dateUtils';
 
 // Generate random password
 const generatePassword = (): string => {
@@ -246,6 +247,19 @@ export const getEmployees = async (req: Request, res: Response, next: NextFuncti
         const employeesWithBookingBlocks = await Promise.all(
             employees.map(async (member) => {
                 const bookingBlockedRanges = await buildBookingBlockedRanges(member._id as mongoose.Types.ObjectId);
+
+                // Normalize blockedRanges dates to ISO strings
+                const normalizedBlockedRanges = (member.blockedRanges || []).map((range: any) => ({
+                    startDate: toISOString(range.startDate),
+                    endDate: toISOString(range.endDate),
+                    reason: range.reason,
+                    createdAt: toISOString(range.createdAt),
+                    _id: range._id
+                })).filter((range: any) => range.startDate && range.endDate);
+
+                // Normalize blockedDates to ISO strings
+                const normalizedBlockedDates = (member.blockedDates || []).map((date: any) => toISOString(date)).filter(Boolean);
+
                 return {
                     _id: member._id,
                     name: member.name,
@@ -258,8 +272,8 @@ export const getEmployees = async (req: Request, res: Response, next: NextFuncti
                     isActive: member.employee?.isActive,
                     managedByCompany: member.employee?.managedByCompany,
                     availability: member.availability,
-                    blockedDates: member.blockedDates,
-                    blockedRanges: member.blockedRanges,
+                    blockedDates: normalizedBlockedDates,
+                    blockedRanges: normalizedBlockedRanges,
                     bookingBlockedRanges
                 };
             })

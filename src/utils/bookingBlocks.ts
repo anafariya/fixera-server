@@ -1,5 +1,6 @@
 import Booking from "../models/booking";
 import { Types } from "mongoose";
+import { toISOString } from "./dateUtils";
 
 type BookingBlockedRange = { startDate: string; endDate: string; reason?: string };
 
@@ -50,14 +51,14 @@ export const buildBookingBlockedRanges = async (
       booking.scheduledBufferEndDate || (booking as any).scheduledEndDate;
 
     if (booking.scheduledStartDate && scheduledExecutionEndDate) {
-      const startDate = new Date(booking.scheduledStartDate);
-      const endDate = new Date(scheduledExecutionEndDate);
+      const startDateISO = toISOString(booking.scheduledStartDate);
+      const endDateISO = toISOString(scheduledExecutionEndDate);
 
       // Validate dates before creating range
-      if (!Number.isNaN(startDate.getTime()) && !Number.isNaN(endDate.getTime())) {
+      if (startDateISO && endDateISO) {
         ranges.push({
-          startDate: startDate.toISOString(),
-          endDate: endDate.toISOString(),
+          startDate: startDateISO,
+          endDate: endDateISO,
           reason: "booking",
         });
       } else {
@@ -66,16 +67,16 @@ export const buildBookingBlockedRanges = async (
     }
 
     if (scheduledBufferStartDate && scheduledBufferEndDate && scheduledExecutionEndDate) {
-      const bufferStart = new Date(scheduledBufferStartDate);
-      const bufferEnd = new Date(scheduledBufferEndDate);
+      const bufferStartISO = toISOString(scheduledBufferStartDate);
+      const bufferEndISO = toISOString(scheduledBufferEndDate);
 
       // Validate buffer dates before creating range
-      if (!Number.isNaN(bufferStart.getTime()) && !Number.isNaN(bufferEnd.getTime())) {
+      if (bufferStartISO && bufferEndISO) {
         // Don't extend buffer end date - use the actual scheduled end
         // Extending to UTC 23:59:59 causes timezone issues (bleeds into next day in other timezones)
         ranges.push({
-          startDate: bufferStart.toISOString(),
-          endDate: bufferEnd.toISOString(),
+          startDate: bufferStartISO,
+          endDate: bufferEndISO,
           reason: "booking-buffer",
         });
       } else {
