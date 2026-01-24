@@ -7,6 +7,7 @@ import { sendTeamMemberInvitationEmail } from "../../utils/emailService";
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { buildBookingBlockedRanges } from '../../utils/bookingBlocks';
+import { toISOString } from '../../utils/dateUtils';
 
 // Generate random password
 const generatePassword = (): string => {
@@ -241,26 +242,6 @@ export const getEmployees = async (req: Request, res: Response, next: NextFuncti
         }).select('-password -verificationCode -verificationCodeExpires');
 
         console.log(`👥 EMPLOYEE: Retrieved ${employees.length} employees for ${professional.email}`);
-
-        // Helper to convert date to ISO string (handles Date objects, {$date: "..."} format, and strings)
-        const toISOString = (date: any): string | null => {
-            if (!date) return null;
-            // Handle MongoDB Extended JSON format {$date: "..."}
-            if (typeof date === 'object' && date.$date) {
-                return typeof date.$date === 'string' ? date.$date : new Date(date.$date).toISOString();
-            }
-            // Handle Date objects
-            if (date instanceof Date) {
-                return date.toISOString();
-            }
-            // Handle string dates
-            if (typeof date === 'string') {
-                return date;
-            }
-            // Try to convert to Date
-            const parsed = new Date(date);
-            return isNaN(parsed.getTime()) ? null : parsed.toISOString();
-        };
 
         // Get booking blocked ranges for each employee
         const employeesWithBookingBlocks = await Promise.all(
