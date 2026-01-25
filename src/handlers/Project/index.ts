@@ -691,7 +691,7 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
 
       // Find which of our project's resources are blocked by this booking.
       // Match scheduleEngine legacy logic for bookings without assigned team members.
-      const blockedResourceIds: string[] = [];
+      const blockedResourceIds = new Set<string>();
 
       const assignedTeamMembers = Array.isArray(booking.assignedTeamMembers)
         ? booking.assignedTeamMembers
@@ -702,7 +702,7 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
         assignedTeamMembers.forEach((memberId: any) => {
           const memberIdStr = String(memberId);
           if (projectResources.has(memberIdStr)) {
-            blockedResourceIds.push(memberIdStr);
+            blockedResourceIds.add(memberIdStr);
           }
         });
       } else {
@@ -710,26 +710,27 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
         if (booking.professional) {
           const profIdStr = String(booking.professional);
           if (projectResources.has(profIdStr)) {
-            blockedResourceIds.push(profIdStr);
+            blockedResourceIds.add(profIdStr);
           }
         }
 
         const projectId = String(project._id);
         if (booking.project && String(booking.project) === projectId) {
           projectResources.forEach((resourceId) => {
-            blockedResourceIds.push(resourceId);
+            blockedResourceIds.add(resourceId);
           });
         }
       }
 
       // Add to bookings debug info
-      if (debugEnabled && bookingsDebugInfo && blockedResourceIds.length > 0) {
+      if (debugEnabled && bookingsDebugInfo && blockedResourceIds.size > 0) {
+        const blockedResourceIdsArray = Array.from(blockedResourceIds);
         bookingsDebugInfo.push({
           bookingId: String(booking._id),
           scheduledStart: booking.scheduledStartDate ? toIsoDate(booking.scheduledStartDate) : null,
           scheduledEnd: scheduledExecutionEndDate ? toIsoDate(scheduledExecutionEndDate) : null,
-          blockedMembers: blockedResourceIds,
-          blockedMemberNames: blockedResourceIds.map(
+          blockedMembers: blockedResourceIdsArray,
+          blockedMemberNames: blockedResourceIdsArray.map(
             (id) => teamMemberDebugInfo?.[id]?.name || "Unknown"
           ),
         });
