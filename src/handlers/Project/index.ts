@@ -917,7 +917,12 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       let workingDaysCounted = 0;
       let daysWithMinResources = 0;
       const cursor = new Date(startDate);
-      const maxIterations = 366 * 2; // Safety guard
+      const SAFETY_BUFFER_DAYS = 30;
+      const SAFETY_CEILING = 366 * 5;
+      const maxIterations = Math.min(
+        maxThroughput * 2 + SAFETY_BUFFER_DAYS,
+        SAFETY_CEILING
+      );
       let iterations = 0;
 
       while (
