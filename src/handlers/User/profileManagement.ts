@@ -5,9 +5,12 @@ import jwt from 'jsonwebtoken';
 import { upload, uploadToS3, deleteFromS3, generateFileName, validateFile } from "../../utils/s3Upload";
 import mongoose from 'mongoose';
 
-// Upload ID proof
-export const uploadIdProof = async (req: Request, res: Response, next: NextFunction) => {
+export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    if (req.user?.id) {
+      return next();
+    }
+
     const token = req.cookies?.['auth-token'];
 
     if (!token) {
@@ -27,8 +30,29 @@ export const uploadIdProof = async (req: Request, res: Response, next: NextFunct
       });
     }
 
+    (req as any).user = { id: decoded.id };
+    return next();
+  } catch (error: any) {
+    console.error('Require auth error:', error);
+    return res.status(500).json({
+      success: false,
+      msg: "Failed to authenticate user"
+    });
+  }
+};
+
+// Upload ID proof
+export const uploadIdProof = async (req: Request, res: Response, next: NextFunction) => {
+  try {
     await connecToDatabase();
-    const user = await User.findById(decoded.id);
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        msg: "Authentication required"
+      });
+    }
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -87,6 +111,8 @@ export const uploadIdProof = async (req: Request, res: Response, next: NextFunct
     // Track if this is a re-upload for an already-approved professional
     const wasApproved = user.professionalStatus === 'approved';
     const hadPreviousId = !!user.idProofUrl;
+    const previousIdProofUrl = user.idProofUrl;
+    const previousIdProofFileName = user.idProofFileName;
 
     // Update user record
     user.idProofUrl = uploadResult.url;
@@ -100,8 +126,8 @@ export const uploadIdProof = async (req: Request, res: Response, next: NextFunct
       if (!user.pendingIdChanges) user.pendingIdChanges = [];
       user.pendingIdChanges.push({
         field: 'idProofDocument',
-        oldValue: 'Previous document',
-        newValue: 'New document uploaded'
+        oldValue: previousIdProofUrl || previousIdProofFileName || '',
+        newValue: uploadResult.key
       });
       user.rejectionReason = undefined;
     }
@@ -147,25 +173,6 @@ export const uploadIdProof = async (req: Request, res: Response, next: NextFunct
 // Update professional profile
 export const updateProfessionalProfile = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = req.cookies?.['auth-token'];
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        msg: "Authentication required"
-      });
-    }
-
-    let decoded: { id: string } | null = null;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
-    } catch (err) {
-      return res.status(401).json({
-        success: false,
-        msg: "Invalid authentication token"
-      });
-    }
-
     const {
       businessInfo,
       hourlyRate,
@@ -179,7 +186,14 @@ export const updateProfessionalProfile = async (req: Request, res: Response, nex
     } = req.body;
 
     await connecToDatabase();
-    const user = await User.findById(decoded.id);
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        msg: "Authentication required"
+      });
+    }
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -408,27 +422,15 @@ export const updateProfessionalProfile = async (req: Request, res: Response, nex
 // Send profile for verification - PHASE 3 implementation
 export const submitForVerification = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = req.cookies?.['auth-token'];
-
-    if (!token) {
+    await connecToDatabase();
+    const userId = req.user?.id;
+    if (!userId) {
       return res.status(401).json({
         success: false,
         msg: "Authentication required"
       });
     }
-
-    let decoded: { id: string } | null = null;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
-    } catch (err) {
-      return res.status(401).json({
-        success: false,
-        msg: "Invalid authentication token"
-      });
-    }
-
-    await connecToDatabase();
-    const user = await User.findById(decoded.id);
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -539,25 +541,6 @@ export const submitForVerification = async (req: Request, res: Response, next: N
 // Update phone number
 export const updatePhone = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = req.cookies?.['auth-token'];
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        msg: "Authentication required"
-      });
-    }
-
-    let decoded: { id: string } | null = null;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
-    } catch (err) {
-      return res.status(401).json({
-        success: false,
-        msg: "Invalid authentication token"
-      });
-    }
-
     const { phone } = req.body;
 
     if (!phone || typeof phone !== 'string') {
@@ -578,7 +561,14 @@ export const updatePhone = async (req: Request, res: Response, next: NextFunctio
     }
 
     await connecToDatabase();
-    const user = await User.findById(decoded.id);
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        msg: "Authentication required"
+      });
+    }
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -616,7 +606,6 @@ export const updatePhone = async (req: Request, res: Response, next: NextFunctio
     user.isPhoneVerified = false;
     await user.save();
 
-    console.log(`📱 Phone: Updated phone for ${user.email} to ${trimmedPhone}`);
 
     return res.status(200).json({
       success: true,
@@ -629,6 +618,22 @@ export const updatePhone = async (req: Request, res: Response, next: NextFunctio
 
   } catch (error: any) {
     console.error('Update phone error:', error);
+
+    const isDuplicateKeyError = !!error && (
+      (error.name === 'MongoServerError' && error.code === 11000) ||
+      error.code === 11000 ||
+      error.codeName === 'DuplicateKey'
+    );
+    const isPhoneDuplicate = !!(error?.keyPattern?.phone || error?.keyValue?.phone) ||
+      (typeof error?.message === 'string' && error.message.includes('phone'));
+
+    if (isDuplicateKeyError && isPhoneDuplicate) {
+      return res.status(409).json({
+        success: false,
+        msg: "This phone number is already in use"
+      });
+    }
+
     return res.status(500).json({
       success: false,
       msg: "Failed to update phone number"
@@ -639,29 +644,22 @@ export const updatePhone = async (req: Request, res: Response, next: NextFunctio
 // Update customer profile (address, business name for business customers)
 export const updateCustomerProfile = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = req.cookies?.['auth-token'];
+    const { address, city, country, postalCode, businessName } = req.body;
+    const trimmedAddress = typeof address === 'string' ? address.trim() : undefined;
+    const trimmedCity = typeof city === 'string' ? city.trim() : undefined;
+    const trimmedCountry = typeof country === 'string' ? country.trim() : undefined;
+    const trimmedPostalCode = typeof postalCode === 'string' ? postalCode.trim() : undefined;
+    const trimmedBusinessName = typeof businessName === 'string' ? businessName.trim() : undefined;
 
-    if (!token) {
+    await connecToDatabase();
+    const userId = req.user?.id;
+    if (!userId) {
       return res.status(401).json({
         success: false,
         msg: "Authentication required"
       });
     }
-
-    let decoded: { id: string } | null = null;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
-    } catch (err) {
-      return res.status(401).json({
-        success: false,
-        msg: "Invalid authentication token"
-      });
-    }
-
-    const { address, city, country, postalCode, businessName } = req.body;
-
-    await connecToDatabase();
-    const user = await User.findById(decoded.id);
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -677,33 +675,38 @@ export const updateCustomerProfile = async (req: Request, res: Response, next: N
       });
     }
 
-    // Update location fields
-    if (!user.location) {
-      user.location = {
-        type: 'Point',
-        coordinates: [0, 0]
-      };
+    const hasLocationField = [trimmedAddress, trimmedCity, trimmedCountry, trimmedPostalCode]
+      .some((value) => value !== undefined);
+
+    if (hasLocationField) {
+      // Update location fields
+      if (!user.location) {
+        user.location = {
+          type: 'Point',
+          coordinates: [0, 0]
+        };
+      } else if (!user.location.coordinates || user.location.coordinates.length !== 2) {
+        user.location.coordinates = [0, 0];
+      }
+
+      if (trimmedAddress !== undefined) user.location.address = trimmedAddress;
+      if (trimmedCity !== undefined) user.location.city = trimmedCity;
+      if (trimmedCountry !== undefined) user.location.country = trimmedCountry;
+      if (trimmedPostalCode !== undefined) user.location.postalCode = trimmedPostalCode;
     }
 
-    if (address !== undefined) user.location.address = address;
-    if (city !== undefined) user.location.city = city;
-    if (country !== undefined) user.location.country = country;
-    if (postalCode !== undefined) user.location.postalCode = postalCode;
-
     // Business name only for business customers
-    if (businessName !== undefined) {
+    if (trimmedBusinessName !== undefined) {
       if (user.customerType !== 'business') {
         return res.status(400).json({
           success: false,
           msg: "Business name can only be set for business customers"
         });
       }
-      user.businessName = businessName;
+      user.businessName = trimmedBusinessName.length > 0 ? trimmedBusinessName : undefined;
     }
 
     await user.save();
-
-    console.log(`🏠 Customer Profile: Updated for ${user.email}`);
 
     return res.status(200).json({
       success: true,
@@ -727,29 +730,18 @@ export const updateCustomerProfile = async (req: Request, res: Response, next: N
 // Update ID information (triggers re-verification for professionals)
 export const updateIdInfo = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = req.cookies?.['auth-token'];
+    const { idCountryOfIssue, idExpirationDate } = req.body;
+    const normalizedIdCountryOfIssue = typeof idCountryOfIssue === 'string' ? idCountryOfIssue.trim() : undefined;
 
-    if (!token) {
+    await connecToDatabase();
+    const userId = req.user?.id;
+    if (!userId) {
       return res.status(401).json({
         success: false,
         msg: "Authentication required"
       });
     }
-
-    let decoded: { id: string } | null = null;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
-    } catch (err) {
-      return res.status(401).json({
-        success: false,
-        msg: "Invalid authentication token"
-      });
-    }
-
-    const { idCountryOfIssue, idExpirationDate } = req.body;
-
-    await connecToDatabase();
-    const user = await User.findById(decoded.id);
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -768,43 +760,26 @@ export const updateIdInfo = async (req: Request, res: Response, next: NextFuncti
     // Track changes for admin review
     const changes: { field: string; oldValue: string; newValue: string }[] = [];
 
-    if (idCountryOfIssue !== undefined && idCountryOfIssue.trim() === '') {
-      return res.status(400).json({
-        success: false,
-        msg: "ID country of issue is required"
-      });
-    }
-
-    if (idCountryOfIssue !== undefined && idCountryOfIssue !== (user.idCountryOfIssue || '')) {
+    if (normalizedIdCountryOfIssue !== undefined && normalizedIdCountryOfIssue !== (user.idCountryOfIssue || '')) {
       changes.push({
         field: 'idCountryOfIssue',
         oldValue: user.idCountryOfIssue || '',
-        newValue: idCountryOfIssue
+        newValue: normalizedIdCountryOfIssue
       });
     }
 
+    let parsedExpirationDate: Date | undefined;
+    let newDate = '';
     if (idExpirationDate !== undefined) {
-      if (!idExpirationDate) {
-        return res.status(400).json({
-          success: false,
-          msg: "ID expiration date is required"
-        });
-      }
-      const parsedExpiration = new Date(idExpirationDate);
-      if (Number.isNaN(parsedExpiration.getTime())) {
+      parsedExpirationDate = new Date(idExpirationDate);
+      if (Number.isNaN(parsedExpirationDate.getTime())) {
         return res.status(400).json({
           success: false,
           msg: "Invalid ID expiration date"
         });
       }
-      if (parsedExpiration <= new Date()) {
-        return res.status(400).json({
-          success: false,
-          msg: "ID expiration date must be in the future"
-        });
-      }
+      newDate = parsedExpirationDate.toISOString().split('T')[0];
       const oldDate = user.idExpirationDate ? user.idExpirationDate.toISOString().split('T')[0] : '';
-      const newDate = parsedExpiration.toISOString().split('T')[0];
       if (oldDate !== newDate) {
         changes.push({
           field: 'idExpirationDate',
@@ -822,32 +797,37 @@ export const updateIdInfo = async (req: Request, res: Response, next: NextFuncti
     }
 
     // Apply changes
-    if (idCountryOfIssue !== undefined) user.idCountryOfIssue = idCountryOfIssue;
-    if (idExpirationDate !== undefined) {
-      user.idExpirationDate = new Date(idExpirationDate);
-      user.idExpiryEmailSentAt = undefined;
+    if (normalizedIdCountryOfIssue !== undefined) user.idCountryOfIssue = normalizedIdCountryOfIssue;
+    if (idExpirationDate !== undefined && parsedExpirationDate) {
+      user.idExpirationDate = parsedExpirationDate;
     }
 
     // Store pending changes for admin review
-    user.pendingIdChanges = changes;
+    if (!user.pendingIdChanges) {
+      user.pendingIdChanges = [];
+    }
+    user.pendingIdChanges.push(...changes);
 
     // Trigger re-verification only if already approved
     const wasApproved = user.professionalStatus === 'approved';
-    if (wasApproved) {
+    const shouldSetPending = user.professionalStatus === 'approved' || user.professionalStatus === 'pending';
+    if (shouldSetPending) {
       user.professionalStatus = 'pending';
+      user.isIdVerified = false;
       user.rejectionReason = undefined;
     }
-    user.isIdVerified = false;
 
     await user.save();
 
-    console.log(`🔄 ID Info: Updated for ${user.email}, re-verification triggered. Changes: ${JSON.stringify(changes)}`);
+    const changedFields = changes.map((change) => change.field);
 
     return res.status(200).json({
       success: true,
-      msg: wasApproved
-        ? "ID information updated. Your professional status has been set to pending for re-verification."
-        : "ID information updated successfully.",
+      msg: shouldSetPending
+        ? (wasApproved
+          ? "ID information updated. Your professional status has been set to pending for re-verification."
+          : "ID information updated. Your profile is pending verification.")
+        : "ID information updated.",
       data: {
         changes,
         professionalStatus: user.professionalStatus,

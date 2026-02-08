@@ -35,6 +35,7 @@ export interface IUser extends Document {
     approvedBy?: string; // Admin user ID who approved
     approvedAt?: Date;
     rejectionReason?: string;
+    lastIdChangeRejectionReason?: string;
     // Customer-specific fields
     customerType?: CustomerType;
     businessName?: string; // For business customers
@@ -212,11 +213,14 @@ const UserSchema = new Schema({
         type: Date,
         required: false
     },
-    pendingIdChanges: [{
-        field: { type: String, required: true },
-        oldValue: { type: String, required: true },
-        newValue: { type: String, required: true }
-    }],
+    pendingIdChanges: {
+        type: [{
+            field: { type: String, required: true },
+            oldValue: { type: String, required: true },
+            newValue: { type: String, required: true }
+        }],
+        default: undefined
+    },
     // Professional approval fields
     professionalStatus: {
         type: String,
@@ -237,6 +241,11 @@ const UserSchema = new Schema({
         required: false
     },
     rejectionReason: {
+        type: String,
+        required: false,
+        maxlength: 500
+    },
+    lastIdChangeRejectionReason: {
         type: String,
         required: false,
         maxlength: 500
@@ -461,6 +470,11 @@ const UserSchema = new Schema({
 });
 
 UserSchema.pre("save", function (next) {
+    const isBusinessCustomer = this.role === "customer" && this.customerType === "business";
+    if (!isBusinessCustomer) {
+        this.set("businessName", undefined);
+    }
+
     if (this.role === "professional") {
         this.set("availability", undefined);
     }
@@ -493,6 +507,7 @@ UserSchema.pre("save", function (next) {
         this.set("approvedBy", undefined);
         this.set("approvedAt", undefined);
         this.set("rejectionReason", undefined);
+        this.set("lastIdChangeRejectionReason", undefined);
 
         // Customer-only fields
         this.set("customerType", undefined);
