@@ -87,6 +87,8 @@ export const uploadIdProof = async (req: Request, res: Response, next: NextFunct
     // Track if this is a re-upload for an already-approved professional
     const wasApproved = user.professionalStatus === 'approved';
     const hadPreviousId = !!user.idProofUrl;
+    const previousIdProofUrl = user.idProofUrl;
+    const previousIdProofFileName = user.idProofFileName;
 
     // Update user record
     user.idProofUrl = uploadResult.url;
@@ -100,8 +102,8 @@ export const uploadIdProof = async (req: Request, res: Response, next: NextFunct
       if (!user.pendingIdChanges) user.pendingIdChanges = [];
       user.pendingIdChanges.push({
         field: 'idProofDocument',
-        oldValue: 'Previous document',
-        newValue: 'New document uploaded'
+        oldValue: previousIdProofUrl || previousIdProofFileName || 'unknown',
+        newValue: uploadResult.key
       });
       user.rejectionReason = undefined;
     }
@@ -593,7 +595,7 @@ export const updatePhone = async (req: Request, res: Response, next: NextFunctio
     user.isPhoneVerified = false;
     await user.save();
 
-    console.log(`📱 Phone: Updated phone for ${user.email} to ${trimmedPhone}`);
+    console.log(`📱 Phone: Updated phone for userId=${user._id.toString()}`);
 
     return res.status(200).json({
       success: true,
@@ -606,6 +608,22 @@ export const updatePhone = async (req: Request, res: Response, next: NextFunctio
 
   } catch (error: any) {
     console.error('Update phone error:', error);
+
+    const isDuplicateKeyError = !!error && (
+      (error.name === 'MongoServerError' && error.code === 11000) ||
+      error.code === 11000 ||
+      error.codeName === 'DuplicateKey'
+    );
+    const isPhoneDuplicate = !!(error?.keyPattern?.phone || error?.keyValue?.phone) ||
+      (typeof error?.message === 'string' && error.message.includes('phone'));
+
+    if (isDuplicateKeyError && isPhoneDuplicate) {
+      return res.status(409).json({
+        success: false,
+        msg: "This phone number is already in use"
+      });
+    }
+
     return res.status(500).json({
       success: false,
       msg: "Failed to update phone number"
@@ -657,8 +675,7 @@ export const updateCustomerProfile = async (req: Request, res: Response, next: N
     // Update location fields
     if (!user.location) {
       user.location = {
-        type: 'Point',
-        coordinates: [0, 0]
+        type: 'Point'
       };
     }
 
@@ -753,9 +770,18 @@ export const updateIdInfo = async (req: Request, res: Response, next: NextFuncti
       });
     }
 
+    let parsedExpirationDate: Date | undefined;
+    let newDate = '';
     if (idExpirationDate !== undefined) {
+      parsedExpirationDate = new Date(idExpirationDate);
+      if (Number.isNaN(parsedExpirationDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          msg: "Invalid ID expiration date"
+        });
+      }
+      newDate = parsedExpirationDate.toISOString().split('T')[0];
       const oldDate = user.idExpirationDate ? user.idExpirationDate.toISOString().split('T')[0] : '';
-      const newDate = idExpirationDate ? new Date(idExpirationDate).toISOString().split('T')[0] : '';
       if (oldDate !== newDate) {
         changes.push({
           field: 'idExpirationDate',
@@ -774,10 +800,15 @@ export const updateIdInfo = async (req: Request, res: Response, next: NextFuncti
 
     // Apply changes
     if (idCountryOfIssue !== undefined) user.idCountryOfIssue = idCountryOfIssue;
-    if (idExpirationDate !== undefined) user.idExpirationDate = new Date(idExpirationDate);
+    if (idExpirationDate !== undefined && parsedExpirationDate) {
+      user.idExpirationDate = parsedExpirationDate;
+    }
 
     // Store pending changes for admin review
-    user.pendingIdChanges = changes;
+    if (!user.pendingIdChanges) {
+      user.pendingIdChanges = [];
+    }
+    user.pendingIdChanges.push(...changes);
 
     // Trigger re-verification: set status to pending
     const wasApproved = user.professionalStatus === 'approved';

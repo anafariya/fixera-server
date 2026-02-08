@@ -206,11 +206,14 @@ const UserSchema = new Schema({
         type: Date,
         required: false
     },
-    pendingIdChanges: [{
-        field: { type: String, required: true },
-        oldValue: { type: String, required: true },
-        newValue: { type: String, required: true }
-    }],
+    pendingIdChanges: {
+        type: [{
+            field: { type: String, required: true },
+            oldValue: { type: String, required: true },
+            newValue: { type: String, required: true }
+        }],
+        default: undefined
+    },
     // Professional approval fields
     professionalStatus: {
         type: String,

@@ -3,6 +3,7 @@ import User, { IUser } from "../../models/user";
 import connecToDatabase from "../../config/db";
 import jwt from 'jsonwebtoken';
 import { sendProfessionalApprovalEmail, sendProfessionalRejectionEmail, sendProfessionalSuspensionEmail, sendProfessionalReactivationEmail } from "../../utils/emailService";
+import { deleteFromS3 } from "../../utils/s3Upload";
 import mongoose from 'mongoose';
 
 // Get all professionals pending approval
@@ -688,6 +689,13 @@ export const reviewIdChanges = async (req: Request, res: Response, next: NextFun
       professional.rejectionReason = undefined;
       await professional.save();
 
+      // Send approval email
+      try {
+        await sendProfessionalApprovalEmail(professional.email, professional.name);
+      } catch (emailError) {
+        console.error(`📧 PHASE 1: Failed to send approval email to ${professional.email}:`, emailError);
+      }
+
       console.log(`✅ Admin: ID changes approved for ${professional.email} by ${adminUser.email}`);
 
       return res.status(200).json({
@@ -709,11 +717,67 @@ export const reviewIdChanges = async (req: Request, res: Response, next: NextFun
           professional.idCountryOfIssue = change.oldValue || undefined;
         } else if (change.field === 'idExpirationDate') {
           professional.idExpirationDate = change.oldValue ? new Date(change.oldValue) : undefined;
+        } else if (change.field === 'idProofDocument') {
+          const oldValue = change.oldValue?.trim();
+          const newValue = change.newValue?.trim();
+          const resolveS3Key = (value?: string): string | null => {
+            if (!value) return null;
+            if (value.startsWith('http')) {
+              try {
+                const url = new URL(value);
+                const key = url.pathname.replace(/^\/+/, '');
+                return key || null;
+              } catch (error) {
+                return null;
+              }
+            }
+            if (value.startsWith('id-proof/')) {
+              return value;
+            }
+            return null;
+          };
+
+          const buildS3UrlFromKey = (key: string): string => {
+            const bucket = process.env.S3_BUCKET_NAME || 'fixera-uploads';
+            const region = process.env.AWS_REGION || 'us-east-1';
+            return `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
+          };
+
+          if (oldValue) {
+            if (oldValue.startsWith('http')) {
+              professional.idProofUrl = oldValue;
+              professional.idProofFileName = resolveS3Key(oldValue) || undefined;
+            } else {
+              const oldKey = resolveS3Key(oldValue);
+              if (oldKey) {
+                professional.idProofFileName = oldKey;
+                professional.idProofUrl = buildS3UrlFromKey(oldKey);
+              } else {
+                professional.idProofUrl = undefined;
+                professional.idProofFileName = undefined;
+                professional.idProofUploadedAt = undefined;
+              }
+            }
+          } else {
+            professional.idProofUrl = undefined;
+            professional.idProofFileName = undefined;
+            professional.idProofUploadedAt = undefined;
+          }
+
+          const newKey = resolveS3Key(newValue);
+          if (newKey) {
+            try {
+              await deleteFromS3(newKey);
+            } catch (deleteError) {
+              console.warn(`⚠️ ID Proof: Failed to delete rejected upload ${newKey}:`, deleteError);
+            }
+          }
         }
       }
 
       professional.pendingIdChanges = [];
-      professional.professionalStatus = 'rejected';
+      professional.professionalStatus = 'approved';
+      professional.isIdVerified = true;
       professional.rejectionReason = reason.trim();
       await professional.save();
 
