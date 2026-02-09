@@ -7,6 +7,15 @@ import mongoose from 'mongoose';
 import { PhoneNumberUtil, PhoneNumberFormat } from 'google-libphonenumber';
 
 const phoneUtil = PhoneNumberUtil.getInstance();
+const maskEmail = (email: string): string => {
+  if (!email) return 'Unknown';
+  const [local, domain] = email.split('@');
+  if (!local || !domain) return email;
+  const maskedLocal = local.length > 2 
+    ? local.substring(0, 2) + '*'.repeat(local.length - 2) 
+    : local + '*';
+  return `${maskedLocal}@${domain}`;
+};
 
 // Upload ID proof
 export const uploadIdProof = async (req: Request, res: Response, next: NextFunction) => {
@@ -522,7 +531,8 @@ export const updatePhoneNumber = async (req: Request, res: Response, next: NextF
       });
     }
 
-    const { phone } = req.body;
+    const rawPhone = req.body.phone;
+    const phone = typeof rawPhone === 'string' ? rawPhone.trim() : String(rawPhone || '').trim();
 
     if (!phone) {
       return res.status(400).json({
@@ -531,13 +541,41 @@ export const updatePhoneNumber = async (req: Request, res: Response, next: NextF
       });
     }
 
+    // Allow optional leading '+', then 10–15 digits
+    const digitCount = phone.replace(/\D/g, '').length;
+    if (digitCount < 10 || digitCount > 15) {
+       return res.status(400).json({
+        success: false,
+        msg: "Invalid phone number format"
+      });
+    }
+
+    await connecToDatabase();
+    const user = await User.findById(decoded.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        msg: "User not found"
+      });
+    }
+
+    // Determine default region for phone parsing
+    const defaultRegion = user.businessInfo?.country || user.location?.country;
+
+    // If no default region, require E.164 format (starts with '+')
+    if (!defaultRegion && !phone.startsWith('+')) {
+      return res.status(400).json({
+        success: false,
+        msg: "Invalid phone number format"
+      });
+    }
+
     // Normalize and validate phone using google-libphonenumber
-    
     let normalizedPhone: string;
     try {
-      // Parse number with default region 'US' (or change to appropriate default) if not in international format
-      // If the input starts with +, it will form an international number
-      const number = phoneUtil.parseAndKeepRawInput(String(phone), 'US');
+      // Parse number with default region if available
+      const number = phoneUtil.parseAndKeepRawInput(String(phone), defaultRegion);
       
       if (!phoneUtil.isValidNumber(number)) {
         return res.status(400).json({
@@ -553,8 +591,6 @@ export const updatePhoneNumber = async (req: Request, res: Response, next: NextF
         msg: "Invalid phone number format"
       });
     }
-
-    await connecToDatabase();
     
     // Check if phone is already in use by another user
     const existingUser = await User.findOne({ phone: normalizedPhone });
@@ -564,16 +600,6 @@ export const updatePhoneNumber = async (req: Request, res: Response, next: NextF
         msg: "Phone number is already in use by another account"
       });
     }
-
-    const user = await User.findById(decoded.id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        msg: "User not found"
-      });
-    }
-
     let phoneChanged = false;
     // Only update if phone number has changed
     if (user.phone !== normalizedPhone) {
@@ -586,17 +612,17 @@ export const updatePhoneNumber = async (req: Request, res: Response, next: NextF
       } catch (error: any) {
         // Handle concurrent duplicate key error
         if (error.code === 11000) {
-           return res.status(400).json({
+           return res.status(409).json({
             success: false,
-            msg: "Phone number is already in use by another account"
+            msg: "Phone number already in use"
           });
         }
         throw error;
       }
       
-      console.log(`📱 Phone: Updated phone number for ${user.email} -> ${normalizedPhone}`);
+      console.log(`📱 Phone: Updated phone number for ${maskEmail(user.email)}`);
     } else {
-      console.log(`📱 Phone: No change in phone number for ${user.email}`);
+      console.log(`📱 Phone: No change in phone number for ${maskEmail(user.email)}`);
     }
 
     // Return updated user data
