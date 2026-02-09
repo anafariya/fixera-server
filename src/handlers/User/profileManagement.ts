@@ -7,7 +7,6 @@ import mongoose from 'mongoose';
 import { PhoneNumberUtil, PhoneNumberFormat } from 'google-libphonenumber';
 
 const phoneUtil = PhoneNumberUtil.getInstance();
-
 const maskEmail = (email: string): string => {
   if (!email) return 'Unknown';
   const [local, domain] = email.split('@');
@@ -542,22 +541,7 @@ export const updatePhoneNumber = async (req: Request, res: Response, next: NextF
       });
     }
 
-    // Validate format: check for letters and digit count
-    if (/[a-zA-Z]/.test(phone)) {
-      return res.status(400).json({
-        success: false,
-        msg: "Invalid phone number format"
-      });
-    }
 
-     // Allow optional leading '+', then 10–15 digits
-    const digitCount = phone.replace(/\D/g, '').length;
-    if (digitCount < 10 || digitCount > 15) {
-       return res.status(400).json({
-        success: false,
-        msg: "Invalid phone number format"
-      });
-    }
 
     await connecToDatabase();
     const user = await User.findById(decoded.id);
@@ -609,7 +593,6 @@ export const updatePhoneNumber = async (req: Request, res: Response, next: NextF
         msg: "Phone number is already in use by another account"
       });
     }
-
     let phoneChanged = false;
     // Only update if phone number has changed
     if (user.phone !== normalizedPhone) {
