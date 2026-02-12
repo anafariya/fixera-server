@@ -22,14 +22,23 @@ export interface IUser extends Document {
     idProofFileName?: string;
     idProofUploadedAt?: Date;
     isIdVerified?: boolean;
+    idCountryOfIssue?: string;
+    idExpirationDate?: Date;
+    pendingIdChanges?: {
+        field: string;
+        oldValue: string;
+        newValue: string;
+    }[];
     professionalId?: string;
     // Professional approval fields
     professionalStatus?: 'pending' | 'approved' | 'rejected' | 'suspended';
     approvedBy?: string; // Admin user ID who approved
     approvedAt?: Date;
     rejectionReason?: string;
+    lastIdChangeRejectionReason?: string;
     // Customer-specific fields
     customerType?: CustomerType;
+    businessName?: string; // For business customers
     location?: {
         type: 'Point';
         coordinates: [number, number]; // [longitude, latitude]
@@ -201,6 +210,23 @@ const UserSchema = new Schema({
         type: Boolean,
         default: false
     },
+    idCountryOfIssue: {
+        type: String,
+        required: false,
+        trim: true
+    },
+    idExpirationDate: {
+        type: Date,
+        required: false
+    },
+    pendingIdChanges: {
+        type: [{
+            field: { type: String, required: true },
+            oldValue: { type: String, required: true },
+            newValue: { type: String, required: true }
+        }],
+        default: undefined
+    },
     // Professional approval fields
     professionalStatus: {
         type: String,
@@ -221,6 +247,11 @@ const UserSchema = new Schema({
         required: false
     },
     rejectionReason: {
+        type: String,
+        required: false,
+        maxlength: 500
+    },
+    lastIdChangeRejectionReason: {
         type: String,
         required: false,
         maxlength: 500
@@ -411,6 +442,12 @@ const UserSchema = new Schema({
         createdAt: { type: Date, required: false }
     },
     // Customer-specific fields
+    businessName: {
+        type: String,
+        required: false,
+        trim: true,
+        maxlength: 200
+    },
     customerType: {
         type: String,
         enum: ['individual', 'business'],
@@ -448,6 +485,59 @@ const UserSchema = new Schema({
     }
 }, {
     timestamps: true
+});
+
+UserSchema.pre("save", function (next) {
+    const isBusinessCustomer = this.role === "customer" && this.customerType === "business";
+    if (!isBusinessCustomer) {
+        this.set("businessName", undefined);
+    }
+
+    if (this.role === "professional") {
+        this.set("availability", undefined);
+    }
+
+    // Clear fields that employees don't need - they only need:
+    // basic auth fields, employee.*, blockedDates, blockedRanges
+    if (this.role === "employee") {
+        // Professional-only fields
+        this.set("businessInfo", undefined);
+        this.set("hourlyRate", undefined);
+        this.set("currency", undefined);
+        this.set("serviceCategories", undefined);
+        this.set("availability", undefined);
+        this.set("companyAvailability", undefined);
+        this.set("companyBlockedDates", undefined);
+        this.set("companyBlockedRanges", undefined);
+
+        // Professional verification/approval fields
+        this.set("vatNumber", undefined);
+        this.set("isVatVerified", undefined);
+        this.set("idProofUrl", undefined);
+        this.set("idProofFileName", undefined);
+        this.set("idProofUploadedAt", undefined);
+        this.set("isIdVerified", undefined);
+        this.set("idCountryOfIssue", undefined);
+        this.set("idExpirationDate", undefined);
+        this.set("pendingIdChanges", undefined);
+        this.set("professionalStatus", undefined);
+        this.set("approvedBy", undefined);
+        this.set("approvedAt", undefined);
+        this.set("rejectionReason", undefined);
+        this.set("lastIdChangeRejectionReason", undefined);
+
+        // Customer-only fields
+        this.set("customerType", undefined);
+        this.set("location", undefined);
+        this.set("loyaltyPoints", undefined);
+        this.set("loyaltyLevel", undefined);
+        this.set("totalSpent", undefined);
+        this.set("totalBookings", undefined);
+        this.set("lastLoyaltyUpdate", undefined);
+
+        this.set("profileCompletedAt", undefined);
+    }
+    next();
 });
 
 UserSchema.index({ role: 1, professionalStatus: 1 });

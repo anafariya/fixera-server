@@ -5,10 +5,10 @@ import emailVerificationRoutes from "./verify/email";
 import { protect } from "../../middlewares/auth";
 import { GetCurrentUser } from "../../handlers";
 import { validateVAT, updateUserVAT, validateAndPopulateVAT } from "../../handlers/User/validateVat";
-import { uploadIdProof, updateProfessionalProfile, submitForVerification } from "../../handlers/User/profileManagement";
+import { uploadIdProof, updateProfessionalProfile, submitForVerification, updatePhone, updateCustomerProfile, updateIdInfo } from "../../handlers/User/profileManagement";
 import { upload } from "../../utils/s3Upload";
 import { getLoyaltyStatus, addSpending, getLeaderboard } from "../../handlers/User/loyaltyManagement";
-import { inviteEmployee, getEmployees, updateEmployeeStatus, acceptInvitation } from "../../handlers/User/employeeManagement";
+import { inviteEmployee, getEmployees, updateEmployeeStatus, acceptInvitation, updateEmployeeEmail, removeEmployee } from "../../handlers/User/employeeManagement";
 import { changePassword, resetEmployeePassword } from "../../handlers/User/passwordManagement";
 import {
     updateEmployeeAvailabilityPreference,
@@ -52,7 +52,10 @@ userRouter.route("/vat").put(updateUserVAT)
 userRouter.route("/vat/validate-and-populate").post(validateAndPopulateVAT) 
 userRouter.route("/id-proof").post(upload.single('idProof'), uploadIdProof)
 userRouter.route("/professional-profile").put(updateProfessionalProfile)
-userRouter.route("/submit-for-verification").post(submitForVerification) 
+userRouter.route("/submit-for-verification").post(submitForVerification)
+userRouter.route("/phone").put(updatePhone)
+userRouter.route("/customer-profile").put(updateCustomerProfile)
+userRouter.route("/id-info").put(updateIdInfo)
 userRouter.route("/loyalty/status").get(getLoyaltyStatus)
 userRouter.route("/loyalty/add-spending").post(addSpending)
 userRouter.route("/loyalty/leaderboard").get(getLeaderboard)
@@ -61,6 +64,8 @@ userRouter.route("/loyalty/leaderboard").get(getLeaderboard)
 userRouter.route("/employee/invite").post(inviteEmployee)
 userRouter.route("/employee/list").get(getEmployees)
 userRouter.route("/employee/:employeeId/status").put(updateEmployeeStatus)
+userRouter.route("/employee/:employeeId/email").put(updateEmployeeEmail)
+userRouter.route("/employee/:employeeId").delete(removeEmployee)
 userRouter.route("/employee/accept-invitation").post(acceptInvitation)
 
 // Password Management Routes

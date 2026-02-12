@@ -1,13 +1,29 @@
 import { Request, Response, NextFunction } from "express";
-import User, { IUser } from "../../models/user";
+import User from "../../models/user";
 import connecToDatabase from "../../config/db";
 import jwt from 'jsonwebtoken';
 import { upload, uploadToS3, deleteFromS3, generateFileName, validateFile } from "../../utils/s3Upload";
 import mongoose from 'mongoose';
+import { PhoneNumberUtil, PhoneNumberFormat } from 'google-libphonenumber';
+import { getCountryCode } from '../../utils/geocoding';
 
-// Upload ID proof
-export const uploadIdProof = async (req: Request, res: Response, next: NextFunction) => {
+const phoneUtil = PhoneNumberUtil.getInstance();
+const maskEmail = (email: string): string => {
+  if (!email) return 'Unknown';
+  const [local, domain] = email.split('@');
+  if (!local || !domain) return email;
+  const maskedLocal = local.length > 2 
+    ? local.substring(0, 2) + '*'.repeat(local.length - 2) 
+    : local + '*';
+  return `${maskedLocal}@${domain}`;
+};
+
+export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    if (req.user?.id) {
+      return next();
+    }
+
     const token = req.cookies?.['auth-token'];
 
     if (!token) {
@@ -27,8 +43,29 @@ export const uploadIdProof = async (req: Request, res: Response, next: NextFunct
       });
     }
 
+    (req as any).user = { id: decoded.id };
+    return next();
+  } catch (error: any) {
+    console.error('Require auth error:', error);
+    return res.status(500).json({
+      success: false,
+      msg: "Failed to authenticate user"
+    });
+  }
+};
+
+// Upload ID proof
+export const uploadIdProof = async (req: Request, res: Response, next: NextFunction) => {
+  try {
     await connecToDatabase();
-    const user = await User.findById(decoded.id);
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        msg: "Authentication required"
+      });
+    }
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -63,13 +100,20 @@ export const uploadIdProof = async (req: Request, res: Response, next: NextFunct
     }
 
     console.log(`📄 ID Proof: Processing upload for user ${user.email}`);
-    
-    // Delete existing file if any
-    if (user.idProofUrl && user.idProofFileName) {
+
+    // Track if this is a re-upload for an already-approved professional
+    const wasApproved = user.professionalStatus === 'approved';
+    const hadPreviousId = !!user.idProofUrl;
+    const previousIdProofUrl = user.idProofUrl;
+    const previousIdProofFileName = user.idProofFileName;
+
+    // Only delete existing S3 file immediately if this is NOT an approved
+    // professional re-uploading. For approved professionals the old file is
+    // kept so that a rejection can restore it; cleanup happens on approve.
+    if (user.idProofUrl && user.idProofFileName && !(wasApproved && hadPreviousId)) {
       try {
-        // Extract key from URL or use filename
-        const existingKey = user.idProofFileName.startsWith('id-proof/') 
-          ? user.idProofFileName 
+        const existingKey = user.idProofFileName.startsWith('id-proof/')
+          ? user.idProofFileName
           : `id-proof/${user._id}/${user.idProofFileName}`;
         await deleteFromS3(existingKey);
         console.log(`🗑️ ID Proof: Deleted existing file for ${user.email}`);
@@ -89,6 +133,19 @@ export const uploadIdProof = async (req: Request, res: Response, next: NextFunct
     user.idProofFileName = uploadResult.key;
     user.idProofUploadedAt = new Date();
     user.isIdVerified = false; // Reset verification status when new file is uploaded
+
+    // If re-uploading ID while approved, trigger re-verification
+    if (wasApproved && hadPreviousId) {
+      user.professionalStatus = 'pending';
+      if (!user.pendingIdChanges) user.pendingIdChanges = [];
+      user.pendingIdChanges.push({
+        field: 'idProofDocument',
+        oldValue: previousIdProofUrl || previousIdProofFileName || '',
+        newValue: uploadResult.key
+      });
+      user.rejectionReason = undefined;
+    }
+
     await user.save();
 
     console.log(`✅ ID Proof: Successfully uploaded for ${user.email}`);
@@ -130,31 +187,11 @@ export const uploadIdProof = async (req: Request, res: Response, next: NextFunct
 // Update professional profile
 export const updateProfessionalProfile = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = req.cookies?.['auth-token'];
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        msg: "Authentication required"
-      });
-    }
-
-    let decoded: { id: string } | null = null;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
-    } catch (err) {
-      return res.status(401).json({
-        success: false,
-        msg: "Invalid authentication token"
-      });
-    }
-
     const {
       businessInfo,
       hourlyRate,
       currency,
       serviceCategories,
-      availability,
       blockedDates,
       blockedRanges,
       companyAvailability,
@@ -163,7 +200,14 @@ export const updateProfessionalProfile = async (req: Request, res: Response, nex
     } = req.body;
 
     await connecToDatabase();
-    const user = await User.findById(decoded.id);
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        msg: "Authentication required"
+      });
+    }
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -220,13 +264,6 @@ export const updateProfessionalProfile = async (req: Request, res: Response, nex
         });
       }
       user.serviceCategories = serviceCategories;
-    }
-
-    if (availability) {
-      user.availability = {
-        ...user.availability,
-        ...availability
-      };
     }
 
     if (blockedDates !== undefined) {
@@ -371,7 +408,6 @@ export const updateProfessionalProfile = async (req: Request, res: Response, nex
       hourlyRate: user.hourlyRate,
       currency: user.currency,
       serviceCategories: user.serviceCategories,
-      availability: user.availability,
       blockedDates: user.blockedDates,
       blockedRanges: user.blockedRanges,
       companyAvailability: user.companyAvailability,
@@ -400,27 +436,15 @@ export const updateProfessionalProfile = async (req: Request, res: Response, nex
 // Send profile for verification - PHASE 3 implementation
 export const submitForVerification = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = req.cookies?.['auth-token'];
-
-    if (!token) {
+    await connecToDatabase();
+    const userId = req.user?.id;
+    if (!userId) {
       return res.status(401).json({
         success: false,
         msg: "Authentication required"
       });
     }
-
-    let decoded: { id: string } | null = null;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
-    } catch (err) {
-      return res.status(401).json({
-        success: false,
-        msg: "Invalid authentication token"
-      });
-    }
-
-    await connecToDatabase();
-    const user = await User.findById(decoded.id);
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -501,6 +525,343 @@ export const submitForVerification = async (req: Request, res: Response, next: N
     return res.status(500).json({
       success: false,
       msg: "Failed to submit profile for verification"
+    });
+  }
+};
+
+// Update phone number
+export const updatePhone = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rawPhone = req.body.phone;
+    const phone = typeof rawPhone === 'string' ? rawPhone.trim() : String(rawPhone || '').trim();
+
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        msg: "Phone number is required"
+      });
+    }
+
+    await connecToDatabase();
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        msg: "Authentication required"
+      });
+    }
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        msg: "User not found"
+      });
+    }
+
+    // Only allow customer, professional, and employee roles
+    if (!['customer', 'professional', 'employee'].includes(user.role)) {
+      return res.status(403).json({
+        success: false,
+        msg: "Phone update is not available for this role"
+      });
+    }
+
+    // Determine default region for phone parsing (needs 2-letter ISO code)
+    const rawCountry = user.businessInfo?.country || user.location?.country;
+    const defaultRegion = rawCountry
+      ? (rawCountry.length === 2 ? rawCountry.toUpperCase() : getCountryCode(rawCountry))
+      : undefined;
+
+    // Normalize and validate phone using google-libphonenumber
+    let normalizedPhone: string;
+    try {
+      let number;
+      if (phone.startsWith('+')) {
+        // International format — parse directly, no region needed
+        number = phoneUtil.parseAndKeepRawInput(phone, '');
+      } else if (defaultRegion) {
+        // Local format with known region
+        number = phoneUtil.parseAndKeepRawInput(phone, defaultRegion);
+      } else {
+        // Fallback: `defaultRegion` is undefined and `phone` doesn't start with '+'.
+        // Auto-prefix '+' so phoneUtil.parseAndKeepRawInput can attempt E.164 parsing.
+        // This means digit-only input like "12125551234" becomes "+12125551234" and may
+        // resolve to a valid PhoneNumberFormat.E164 number — convenient for users who
+        // omit the '+', but could also silently accept unintended country-code combos.
+        number = phoneUtil.parseAndKeepRawInput('+' + phone, '');
+      }
+
+      if (!phoneUtil.isValidNumber(number)) {
+        return res.status(400).json({
+          success: false,
+          msg: "Invalid phone number. Please include your country code (e.g. +1 for US, +31 for NL)."
+        });
+      }
+
+      normalizedPhone = phoneUtil.format(number, PhoneNumberFormat.E164);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        msg: "Invalid phone number. Please include your country code (e.g. +1 for US, +31 for NL)."
+      });
+    }
+
+    // Check if same as current
+    if (user.phone === normalizedPhone) {
+      return res.status(400).json({
+        success: false,
+        msg: "New phone number is the same as the current one"
+      });
+    }
+
+    // Check uniqueness
+    const existingUser = await User.findOne({ phone: normalizedPhone, _id: { $ne: user._id } });
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        msg: "This phone number is already in use by another account"
+      });
+    }
+
+    user.phone = normalizedPhone;
+    user.isPhoneVerified = false;
+
+    try {
+      await user.save();
+    } catch (error: any) {
+      // Handle concurrent duplicate key error
+      if (error.code === 11000) {
+        return res.status(409).json({
+          success: false,
+          msg: "This phone number is already in use"
+        });
+      }
+      throw error;
+    }
+
+    console.log(`📱 Phone: Updated phone for userId=${String(user._id)}`);
+
+    return res.status(200).json({
+      success: true,
+      msg: "Phone number updated successfully. Please verify your new phone number.",
+      data: {
+        phone: user.phone,
+        isPhoneVerified: user.isPhoneVerified
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Update phone error:', error);
+    return res.status(500).json({
+      success: false,
+      msg: "Failed to update phone number"
+    });
+  }
+};
+
+// Update customer profile (address, business name for business customers)
+export const updateCustomerProfile = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { address, city, country, postalCode, businessName } = req.body;
+    const trimmedAddress = typeof address === 'string' ? address.trim() : undefined;
+    const trimmedCity = typeof city === 'string' ? city.trim() : undefined;
+    const trimmedCountry = typeof country === 'string' ? country.trim() : undefined;
+    const trimmedPostalCode = typeof postalCode === 'string' ? postalCode.trim() : undefined;
+    const trimmedBusinessName = typeof businessName === 'string' ? businessName.trim() : undefined;
+
+    await connecToDatabase();
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        msg: "Authentication required"
+      });
+    }
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        msg: "User not found"
+      });
+    }
+
+    if (user.role !== 'customer') {
+      return res.status(403).json({
+        success: false,
+        msg: "Customer profile updates are only available for customers"
+      });
+    }
+
+    const hasLocationField = [trimmedAddress, trimmedCity, trimmedCountry, trimmedPostalCode]
+      .some((value) => value !== undefined);
+
+    if (hasLocationField) {
+      // Update location fields
+      if (!user.location) {
+        user.location = {
+          type: 'Point',
+          coordinates: [0, 0]
+        };
+      } else if (!user.location.coordinates || user.location.coordinates.length !== 2) {
+        user.location.coordinates = [0, 0];
+      }
+
+      if (trimmedAddress !== undefined) user.location.address = trimmedAddress;
+      if (trimmedCity !== undefined) user.location.city = trimmedCity;
+      if (trimmedCountry !== undefined) user.location.country = trimmedCountry;
+      if (trimmedPostalCode !== undefined) user.location.postalCode = trimmedPostalCode;
+    }
+
+    // Business name only for business customers
+    if (trimmedBusinessName !== undefined) {
+      if (user.customerType !== 'business') {
+        return res.status(400).json({
+          success: false,
+          msg: "Business name can only be set for business customers"
+        });
+      }
+      user.businessName = trimmedBusinessName.length > 0 ? trimmedBusinessName : undefined;
+    }
+
+    await user.save();
+
+    console.log(`🏠 Customer Profile: Updated for ${String(user._id)}`);
+
+    return res.status(200).json({
+      success: true,
+      msg: "Customer profile updated successfully",
+      data: {
+        location: user.location,
+        businessName: user.businessName,
+        customerType: user.customerType
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Update customer profile error:', error);
+    return res.status(500).json({
+      success: false,
+      msg: "Failed to update customer profile"
+    });
+  }
+};
+
+// Update ID information (triggers re-verification for professionals)
+export const updateIdInfo = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { idCountryOfIssue, idExpirationDate } = req.body;
+    const normalizedIdCountryOfIssue = typeof idCountryOfIssue === 'string' ? idCountryOfIssue.trim() : undefined;
+
+    await connecToDatabase();
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        msg: "Authentication required"
+      });
+    }
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        msg: "User not found"
+      });
+    }
+
+    if (user.role !== 'professional') {
+      return res.status(403).json({
+        success: false,
+        msg: "ID info updates are only available for professionals"
+      });
+    }
+
+    // Track changes for admin review
+    const changes: { field: string; oldValue: string; newValue: string }[] = [];
+
+    if (normalizedIdCountryOfIssue !== undefined && normalizedIdCountryOfIssue !== (user.idCountryOfIssue || '')) {
+      changes.push({
+        field: 'idCountryOfIssue',
+        oldValue: user.idCountryOfIssue || '',
+        newValue: normalizedIdCountryOfIssue
+      });
+    }
+
+    let parsedExpirationDate: Date | undefined;
+    let newDate = '';
+    if (idExpirationDate !== undefined) {
+      parsedExpirationDate = new Date(idExpirationDate);
+      if (Number.isNaN(parsedExpirationDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          msg: "Invalid ID expiration date"
+        });
+      }
+      newDate = parsedExpirationDate.toISOString().split('T')[0];
+      const oldDate = user.idExpirationDate ? user.idExpirationDate.toISOString().split('T')[0] : '';
+      if (oldDate !== newDate) {
+        changes.push({
+          field: 'idExpirationDate',
+          oldValue: oldDate,
+          newValue: newDate
+        });
+      }
+    }
+
+    if (changes.length === 0) {
+      return res.status(400).json({
+        success: false,
+        msg: "No changes detected"
+      });
+    }
+
+    // Apply changes
+    if (normalizedIdCountryOfIssue !== undefined) user.idCountryOfIssue = normalizedIdCountryOfIssue;
+    if (idExpirationDate !== undefined && parsedExpirationDate) {
+      user.idExpirationDate = parsedExpirationDate;
+    }
+
+    // Store pending changes for admin review
+    if (!user.pendingIdChanges) {
+      user.pendingIdChanges = [];
+    }
+    user.pendingIdChanges.push(...changes);
+
+    // Trigger re-verification: set status to pending
+    const wasApproved = user.professionalStatus === 'approved';
+    const shouldSetPending = user.professionalStatus === 'approved' || user.professionalStatus === 'pending';
+    if (shouldSetPending) {
+      user.professionalStatus = 'pending';
+      user.isIdVerified = false;
+      user.rejectionReason = undefined;
+    }
+
+    await user.save();
+
+    const changedFields = changes.map((change) => change.field);
+    console.log(`🔄 ID Info: Updated for userId=${String(user._id)}. Fields: ${changedFields.join(', ')}`);
+
+    return res.status(200).json({
+      success: true,
+      msg: shouldSetPending
+        ? (wasApproved
+          ? "ID information updated. Your professional status has been set to pending for re-verification."
+          : "ID information updated. Your profile is pending verification.")
+        : "ID information updated.",
+      data: {
+        changes,
+        professionalStatus: user.professionalStatus,
+        isIdVerified: user.isIdVerified
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Update ID info error:', error);
+    return res.status(500).json({
+      success: false,
+      msg: "Failed to update ID information"
     });
   }
 };

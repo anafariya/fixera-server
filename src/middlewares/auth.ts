@@ -3,15 +3,6 @@ import jwt from 'jsonwebtoken';
 import User, { IUser } from '../models/user';
 import connectToDatabase from '../config/db'; // Import your database connection
 
-// Extend the Express Request interface to include a 'user' property
-declare global {
-  namespace Express {
-    interface Request {
-      user?: IUser;
-    }
-  }
-}
-
 export const protect = async (req: Request, res: Response, next: NextFunction) => {
   try {
     let token: string | undefined;
@@ -21,9 +12,10 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
       token = req.cookies['auth-token'];
     }
 
-    // 2. Check for Bearer token in Authorization header
-    if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-      token = req.headers.authorization.substring(7);
+    // 2. If no cookie, check Authorization header (Bearer token fallback)
+    if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
     }
 
     // 3. If no token found, return unauthorized
@@ -101,8 +93,10 @@ export const authMiddleware = (allowedRoles: string[]) => {
         token = req.cookies['auth-token'];
       }
 
-      if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-        token = req.headers.authorization.substring(7);
+      // Fallback: check Authorization header (Bearer token)
+      if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+        token = req.headers.authorization.split(' ')[1];
+      }
       }
 
       if (!token) {
