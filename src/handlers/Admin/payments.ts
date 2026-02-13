@@ -1,5 +1,9 @@
 import { Request, Response } from 'express';
 import Payment from '../../models/payment';
+import Booking from '../../models/booking';
+import { captureAndTransferPayment } from '../Stripe/payment';
+
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export const getPayments = async (req: Request, res: Response) => {
   try {
@@ -15,7 +19,7 @@ export const getPayments = async (req: Request, res: Response) => {
 
     if (typeof search === 'string' && search.trim().length > 0) {
       const term = search.trim();
-      const regex = new RegExp(term, 'i');
+      const regex = new RegExp(escapeRegex(term), 'i');
       query.$or = [
         { bookingNumber: regex },
         { stripePaymentIntentId: regex },
@@ -71,6 +75,52 @@ export const getPayments = async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       msg: error?.message || 'Failed to load payments'
+    });
+  }
+};
+
+export const capturePayment = async (req: Request, res: Response) => {
+  try {
+    const { paymentId } = req.params;
+
+    const payment = await Payment.findById(paymentId);
+    if (!payment) {
+      return res.status(404).json({ success: false, msg: 'Payment not found' });
+    }
+
+    if (payment.status !== 'authorized') {
+      return res.status(400).json({
+        success: false,
+        msg: `Cannot capture payment with status "${payment.status}". Only authorized payments can be captured.`
+      });
+    }
+
+    const bookingId = payment.booking.toString();
+    const result = await captureAndTransferPayment(bookingId);
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        msg: 'Failed to capture and transfer payment',
+        error: result.error
+      });
+    }
+
+    // Update booking status to completed
+    const booking = await Booking.findById(bookingId);
+    if (booking && booking.status !== 'completed') {
+      await (booking as any).updateStatus('completed', req.user?._id?.toString(), 'Payment captured by admin');
+    }
+
+    return res.json({
+      success: true,
+      msg: 'Payment captured and transferred successfully'
+    });
+  } catch (error: any) {
+    console.error('[ADMIN][PAYMENTS] Failed to capture payment', error);
+    res.status(500).json({
+      success: false,
+      msg: error?.message || 'Failed to capture payment'
     });
   }
 };

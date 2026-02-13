@@ -16,7 +16,7 @@ export const respondToQuoteWithPayment = async (req: Request, res: Response) => 
   try {
     const { bookingId } = req.params;
     const { action } = req.body; // 'accept' or 'reject'
-    const userId = (req as any).user._id;
+    const userId = (req as any).user._id?.toString();
 
     const booking = await Booking.findById(bookingId);
     if (!booking) {

@@ -15,6 +15,8 @@ import professionalRouter from './routes/Professional';
 import searchRouter from './routes/Search';
 import bookingRouter from './routes/Booking';
 import stripeRouter from './routes/Stripe';
+import { getPaymentStats, getTransactions } from './handlers/Professional/payments';
+import { protect } from './middlewares/auth';
 
 dotenv.config();
 
@@ -58,6 +60,10 @@ app.use('/api/professionals', professionalRouter);
 app.use('/api/search', searchRouter);
 app.use('/api/bookings', bookingRouter);
 app.use('/api/stripe', stripeRouter);
+
+// Professional payment endpoints (singular /api/professional)
+app.get('/api/professional/payment-stats', protect, getPaymentStats);
+app.get('/api/professional/transactions', protect, getTransactions);
 
 // Error handler (must be last)
 app.use(errorHandler);

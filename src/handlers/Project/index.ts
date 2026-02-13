@@ -619,16 +619,21 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       }
     });
 
-    // Convert string IDs to ObjectIds for proper MongoDB matching
-    // Validate IDs before conversion to avoid runtime exceptions
-    if (!mongoose.isValidObjectId(project.professionalId)) {
-      console.error('Invalid professionalId:', project.professionalId);
+    // Normalize and validate professional ID before converting to ObjectId.
+    const professionalIdRaw = project.professionalId;
+    const professionalId =
+      typeof professionalIdRaw === "string"
+        ? professionalIdRaw
+        : professionalIdRaw?.toString();
+
+    if (!professionalId || !mongoose.isValidObjectId(professionalId)) {
+      console.error('Invalid professionalId:', professionalIdRaw);
       return res.status(400).json({
         success: false,
         error: "Invalid professional ID in project"
       });
     }
-    const professionalObjectId = new mongoose.Types.ObjectId(project.professionalId);
+    const professionalObjectId = new mongoose.Types.ObjectId(professionalId);
 
     // Booking filter - must match scheduleEngine.ts buildPerMemberBlockedData for consistency
     // Both endpoints must use the same criteria to determine which bookings block resources

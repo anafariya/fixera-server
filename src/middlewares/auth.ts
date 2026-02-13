@@ -16,7 +16,6 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
     if (!token && req.headers.authorization?.startsWith('Bearer ')) {
       token = req.headers.authorization.split(' ')[1];
     }
-    }
 
     // 3. If no token found, return unauthorized
     if (!token) {
@@ -96,7 +95,6 @@ export const authMiddleware = (allowedRoles: string[]) => {
       // Fallback: check Authorization header (Bearer token)
       if (!token && req.headers.authorization?.startsWith('Bearer ')) {
         token = req.headers.authorization.split(' ')[1];
-      }
       }
 
       if (!token) {

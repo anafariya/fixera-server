@@ -18,7 +18,7 @@ if (!process.env.STRIPE_SECRET_KEY) {
 
 // Initialize Stripe with latest API version
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
-  apiVersion: '2025-11-17.clover', // Use latest stable API version
+  apiVersion: '2024-12-18.acacia' as any,
   typescript: true,
   appInfo: {
     name: 'Fixera Platform',

@@ -8,6 +8,33 @@ import { stripe, STRIPE_CONFIG } from '../../services/stripe';
 import User from '../../models/user';
 import { StripeAccountStatusResponse } from '../../Types/stripe';
 
+// Map country names to ISO 3166-1 alpha-2 codes for Stripe
+const COUNTRY_NAME_TO_CODE: Record<string, string> = {
+  'austria': 'AT', 'belgium': 'BE', 'bulgaria': 'BG', 'croatia': 'HR',
+  'cyprus': 'CY', 'czech republic': 'CZ', 'denmark': 'DK', 'estonia': 'EE',
+  'finland': 'FI', 'france': 'FR', 'germany': 'DE', 'greece': 'GR',
+  'hungary': 'HU', 'ireland': 'IE', 'italy': 'IT', 'latvia': 'LV',
+  'lithuania': 'LT', 'luxembourg': 'LU', 'malta': 'MT', 'netherlands': 'NL',
+  'poland': 'PL', 'portugal': 'PT', 'romania': 'RO', 'slovakia': 'SK',
+  'slovenia': 'SI', 'spain': 'ES', 'sweden': 'SE',
+  'united kingdom': 'GB', 'united states': 'US', 'canada': 'CA', 'australia': 'AU',
+  'switzerland': 'CH', 'norway': 'NO',
+};
+
+/**
+ * Convert a country value to a 2-letter ISO code.
+ * Accepts either a name ("Belgium") or already a code ("BE").
+ */
+function toCountryCode(value: string | undefined): string {
+  if (!value) return 'BE';
+  const trimmed = value.trim();
+  // Already a 2-letter code
+  if (/^[A-Z]{2}$/.test(trimmed)) return trimmed;
+  if (/^[a-z]{2}$/.test(trimmed)) return trimmed.toUpperCase();
+  // Look up by name
+  return COUNTRY_NAME_TO_CODE[trimmed.toLowerCase()] || 'BE';
+}
+
 /**
  * Create Stripe Connect Express account for professional
  * POST /api/stripe/connect/create-account
@@ -69,7 +96,7 @@ export const createConnectAccount = async (req: Request, res: Response) => {
     // Create new Stripe Connect Express account
     const account = await stripe.accounts.create({
       type: 'express',
-      country: user.businessInfo?.country || user.location?.country || 'BE',
+      country: toCountryCode(user.businessInfo?.country || user.location?.country),
       email: user.email,
       capabilities: {
         card_payments: { requested: true },

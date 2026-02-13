@@ -2,6 +2,7 @@ import express from 'express';
 import {
   createBooking,
   getMyBookings,
+  getMyPayments,
   getBookingById,
   submitPostBookingAnswers,
   submitQuote,
@@ -21,6 +22,9 @@ router.post('/create', createBooking);
 
 // Get all bookings for current user
 router.get('/my-bookings', getMyBookings);
+
+// Get payment history for current customer
+router.get('/my-payments', getMyPayments);
 
 // Get single booking by ID
 router.get('/:bookingId', getBookingById);

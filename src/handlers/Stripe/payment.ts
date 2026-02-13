@@ -4,6 +4,7 @@
  */
 
 import { Request, Response } from 'express';
+import Stripe from 'stripe';
 import { stripe, STRIPE_CONFIG } from '../../services/stripe';
 import Booking from '../../models/booking';
 import User from '../../models/user';
@@ -12,6 +13,8 @@ import {
   generateIdempotencyKey,
   convertToStripeAmount,
   calculateProfessionalPayout,
+  calculateStripeFee,
+  validatePaymentAmount,
   buildPaymentMetadata,
   buildTransferMetadata,
   determineBookingCurrency,
@@ -50,6 +53,8 @@ const buildPaymentUpsertBase = (booking: any, overrides: Record<string, any> = {
     ...overrides,
   };
 };
+
+const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
 
 /**
  * Create Payment Intent when customer accepts quote
@@ -163,8 +168,16 @@ export const createPaymentIntent = async (
     const netAmount = booking.quote.amount;
     const vatAmount = vatCalculation.vatAmount;
     const totalAmount = vatCalculation.total;
+
+    // Validate payment amount against Stripe minimums/maximums
+    const amountValidation = validatePaymentAmount(totalAmount, currency);
+    if (!amountValidation.valid) {
+      return { success: false, error: { code: 'INVALID_AMOUNT', message: amountValidation.error! } };
+    }
+
     const platformCommission = (totalAmount * STRIPE_CONFIG.commissionPercent) / 100;
     const professionalPayout = totalAmount - platformCommission;
+    const stripeFee = calculateStripeFee(totalAmount, currency);
 
     // Create Payment Intent with manual capture (escrow mode)
     const paymentIntent = await stripe.paymentIntents.create({
@@ -185,7 +198,6 @@ export const createPaymentIntent = async (
       idempotencyKey: generateIdempotencyKey({
         bookingId: booking._id.toString(),
         operation: 'payment-intent',
-        timestamp: Date.now(), // Add timestamp to ensure fresh PaymentIntent
       })
     });
 
@@ -197,6 +209,7 @@ export const createPaymentIntent = async (
       status: 'pending',
       stripePaymentIntentId: paymentIntent.id,
       stripeClientSecret: paymentIntent.client_secret || undefined,
+      stripeFeeAmount: stripeFee,
       platformCommission,
       professionalPayout,
       netAmount,
@@ -393,33 +406,119 @@ export const captureAndTransferPayment = async (bookingId: string): Promise<{ su
       }
     );
 
-    console.log(`✅ Payment captured for booking ${booking._id}`);
-
-    // Step 2: Transfer to professional (money goes from Fixera → Professional)
-    const transfer = await stripe.transfers.create({
-      amount: convertToStripeAmount(booking.payment.professionalPayout),
-      currency: booking.payment.currency.toLowerCase(),
-      destination: professional.stripe.accountId,
-      source_transaction: (paymentIntent.latest_charge as string) || undefined,
-      metadata: buildTransferMetadata(
-        booking._id.toString(),
-        booking.bookingNumber || '',
-        new Date().toISOString(),
-        STRIPE_CONFIG.environment as 'production' | 'test'
-      ),
-      description: `Payout for Booking #${booking.bookingNumber}`,
-    }, {
-      idempotencyKey: generateIdempotencyKey({
-        bookingId: booking._id.toString(),
-        operation: 'transfer',
-      })
-    });
-
-    console.log(`✅ Transfer created for booking ${booking._id}: ${transfer.id}`);
-
-    // Update booking
-    booking.payment.status = 'completed';
+    // Record capture immediately so we don't lose track if transfer fails
     booking.payment.capturedAt = new Date();
+    const latestChargeId = (paymentIntent.latest_charge as string) || booking.payment.stripeChargeId;
+    booking.payment.stripeChargeId = latestChargeId;
+    await booking.save();
+
+    console.log(`Payment captured for booking ${booking._id}`);
+
+    // Step 2: Transfer to professional (money goes from Fixera -> Professional)
+    const payoutMajorAmount = Number(
+      booking.payment.professionalPayout ?? booking.payment.totalWithVat ?? booking.payment.amount ?? 0
+    );
+    const bookingCurrency = (booking.payment.currency || 'EUR').toLowerCase();
+
+    let transferAmount = convertToStripeAmount(payoutMajorAmount);
+    let transferCurrency = bookingCurrency;
+    let sourceTransaction: string | undefined;
+
+    // If Stripe settled the charge in another currency (e.g., USD), source_transaction transfers
+    // must use that settlement currency. We compute payout proportionally in minor units.
+    if (latestChargeId) {
+      sourceTransaction = latestChargeId;
+      try {
+        const charge = await stripe.charges.retrieve(latestChargeId, {
+          expand: ['balance_transaction'],
+        });
+
+        const balanceTransaction =
+          typeof charge.balance_transaction === 'string'
+            ? null
+            : (charge.balance_transaction as Stripe.BalanceTransaction);
+
+        if (balanceTransaction?.currency) {
+          transferCurrency = balanceTransaction.currency.toLowerCase();
+        } else if (charge.currency) {
+          transferCurrency = charge.currency.toLowerCase();
+        }
+
+        if (typeof balanceTransaction?.amount === 'number' && balanceTransaction.amount > 0) {
+          const bookingTotal = Number(booking.payment.totalWithVat ?? booking.payment.amount ?? payoutMajorAmount);
+          const payoutRatio = bookingTotal > 0 ? clamp(payoutMajorAmount / bookingTotal, 0, 1) : 1;
+          transferAmount = Math.max(1, Math.round(balanceTransaction.amount * payoutRatio));
+        }
+      } catch (chargeInspectError: any) {
+        console.warn(
+          `[TRANSFER] Could not inspect charge ${latestChargeId} for booking ${booking._id}. Falling back to booking currency.`,
+          chargeInspectError?.message || chargeInspectError
+        );
+      }
+    }
+
+    let transfer;
+    try {
+      transfer = await stripe.transfers.create({
+        amount: transferAmount,
+        currency: transferCurrency,
+        destination: professional.stripe.accountId,
+        source_transaction: sourceTransaction,
+        metadata: {
+          ...buildTransferMetadata(
+            booking._id.toString(),
+            booking.bookingNumber || '',
+            new Date().toISOString(),
+            STRIPE_CONFIG.environment as 'production' | 'test'
+          ),
+          bookingCurrency,
+          transferCurrency,
+        },
+        description: `Payout for Booking #${booking.bookingNumber}`,
+      }, {
+        idempotencyKey: generateIdempotencyKey({
+          bookingId: booking._id.toString(),
+          operation: 'transfer',
+        })
+      });
+    } catch (transferError: any) {
+      // Capture succeeded but transfer failed — record the state for manual recovery
+      console.error(`Transfer FAILED after capture for booking ${booking._id}:`, transferError.message);
+
+      booking.payment.status = 'completed'; // Money is captured
+      booking.payment.refundNotes = `Transfer failed after capture: ${transferError.message}. Funds held in platform account.`;
+      await booking.save();
+
+      await Payment.findOneAndUpdate(
+        { booking: booking._id },
+        buildPaymentUpsertBase(booking, {
+          status: 'completed',
+          capturedAt: booking.payment.capturedAt,
+          stripeChargeId: booking.payment.stripeChargeId,
+          metadata: {
+            transferFailed: true,
+            transferError: transferError.message,
+            attemptedTransferCurrency: transferCurrency,
+            attemptedTransferAmount: transferAmount,
+            bookingCurrency,
+          },
+        }, professional),
+        { upsert: true }
+      );
+
+      return {
+        success: false,
+        error: {
+          code: 'TRANSFER_FAILED',
+          message: 'Payment captured but transfer to professional failed. Admin will handle manually.'
+        }
+      };
+    }
+
+    console.log(`Transfer created for booking ${booking._id}: ${transfer.id}`);
+
+    // Update booking with full completion
+    booking.payment.status = 'completed';
     booking.payment.stripeTransferId = transfer.id;
     booking.payment.stripeDestinationPayment = transfer.destination_payment as string;
     booking.payment.transferredAt = new Date();
@@ -430,7 +529,7 @@ export const captureAndTransferPayment = async (bookingId: string): Promise<{ su
       buildPaymentUpsertBase(booking, {
         status: 'completed',
         stripePaymentIntentId: booking.payment.stripePaymentIntentId,
-        stripeChargeId: (paymentIntent.latest_charge as string) || booking.payment.stripeChargeId,
+        stripeChargeId: booking.payment.stripeChargeId,
         stripeTransferId: transfer.id,
         stripeDestinationPayment: transfer.destination_payment as string,
         capturedAt: booking.payment.capturedAt,
@@ -489,6 +588,25 @@ export const refundPayment = async (req: Request, res: Response) => {
     }
 
     const refundAmount = amount || booking.payment.totalWithVat;
+
+    // Validate refund amount doesn't exceed remaining refundable amount
+    if (amount && booking.payment.status === 'completed') {
+      const existingPayment = await Payment.findOne({ booking: booking._id });
+      if (existingPayment) {
+        const previousRefundTotal = (existingPayment.refunds || []).reduce(
+          (sum: number, r: any) => sum + (r.amount || 0), 0
+        );
+        if (previousRefundTotal + amount > booking.payment.totalWithVat) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'REFUND_EXCEEDS_TOTAL',
+              message: `Refund of ${amount} would exceed total payment. Already refunded: ${previousRefundTotal}, original: ${booking.payment.totalWithVat}`
+            }
+          });
+        }
+      }
+    }
 
     // Scenario A: Payment authorized but not captured yet
     if (booking.payment.status === 'authorized') {
