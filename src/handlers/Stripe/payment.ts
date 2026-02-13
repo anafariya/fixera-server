@@ -179,11 +179,10 @@ export const createPaymentIntent = async (
     const professionalPayout = totalAmount - platformCommission;
     const stripeFee = calculateStripeFee(totalAmount, currency);
 
-    // Create Payment Intent with manual capture (escrow mode)
+    // Create Payment Intent with immediate charge
     const paymentIntent = await stripe.paymentIntents.create({
       amount: convertToStripeAmount(totalAmount),
       currency: currency.toLowerCase(),
-      capture_method: 'manual', // ESCROW MODE - hold funds until capture
       payment_method_types: ['card'],
       metadata: buildPaymentMetadata(
         booking._id.toString(),
@@ -318,12 +317,13 @@ export const confirmPayment = async (req: Request, res: Response) => {
     console.log(`[PAYMENT CONFIRM] Retrieving PaymentIntent ${paymentIntentId} from Stripe`);
     const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
-    if (paymentIntent.status === 'requires_capture') {
-      // Payment authorized successfully
-      console.log(`[PAYMENT CONFIRM] PaymentIntent status is requires_capture, updating booking`);
+    if (paymentIntent.status === 'succeeded') {
+      // Payment charged successfully — funds in Fixera's Stripe account
+      console.log(`[PAYMENT CONFIRM] PaymentIntent status is succeeded, updating booking`);
 
       booking.payment!.status = 'authorized';
       booking.payment!.authorizedAt = new Date();
+      booking.payment!.capturedAt = new Date();
       if (paymentIntent.latest_charge) {
         booking.payment!.stripeChargeId = paymentIntent.latest_charge as string;
       }
@@ -338,6 +338,7 @@ export const confirmPayment = async (req: Request, res: Response) => {
           stripePaymentIntentId: paymentIntent.id,
           stripeChargeId: (paymentIntent.latest_charge as string) || booking.payment!.stripeChargeId,
           authorizedAt: booking.payment!.authorizedAt || new Date(),
+          capturedAt: booking.payment!.capturedAt || new Date(),
         })
       );
 
@@ -394,25 +395,10 @@ export const captureAndTransferPayment = async (bookingId: string): Promise<{ su
 
     const professional = booking.professional as any;
 
-    // Step 1: Capture the payment (money goes to Fixera's Stripe balance)
-    const paymentIntent = await stripe.paymentIntents.capture(
-      booking.payment.stripePaymentIntentId,
-      {},
-      {
-        idempotencyKey: generateIdempotencyKey({
-          bookingId: booking._id.toString(),
-          operation: 'capture',
-        })
-      }
-    );
+    // Payment already captured (automatic capture) — proceed to transfer
+    const latestChargeId = booking.payment.stripeChargeId;
 
-    // Record capture immediately so we don't lose track if transfer fails
-    booking.payment.capturedAt = new Date();
-    const latestChargeId = (paymentIntent.latest_charge as string) || booking.payment.stripeChargeId;
-    booking.payment.stripeChargeId = latestChargeId;
-    await booking.save();
-
-    console.log(`Payment captured for booking ${booking._id}`);
+    console.log(`Transferring payment for booking ${booking._id} (already captured)`);
 
     // Step 2: Transfer to professional (money goes from Fixera -> Professional)
     const payoutMajorAmount = Number(
@@ -608,9 +594,18 @@ export const refundPayment = async (req: Request, res: Response) => {
       }
     }
 
-    // Scenario A: Payment authorized but not captured yet
+    // Scenario A: Payment authorized (charged but not yet transferred to professional)
     if (booking.payment.status === 'authorized') {
-      await stripe.paymentIntents.cancel(booking.payment.stripePaymentIntentId);
+      const refund = await stripe.refunds.create({
+        payment_intent: booking.payment.stripePaymentIntentId,
+        amount: amount ? convertToStripeAmount(amount) : undefined,
+      }, {
+        idempotencyKey: generateIdempotencyKey({
+          bookingId: booking._id.toString(),
+          operation: 'refund',
+          timestamp: Date.now(),
+        })
+      });
 
       booking.payment.status = 'refunded';
       booking.payment.refundedAt = new Date();
@@ -625,27 +620,26 @@ export const refundPayment = async (req: Request, res: Response) => {
           $set: buildPaymentUpsertBase(booking, {
             status: 'refunded',
             refundedAt: booking.payment.refundedAt,
-            canceledAt: booking.payment.refundedAt,
           }),
           $push: {
             refunds: {
               amount: refundAmount,
               reason,
-              refundId: undefined,
+              refundId: refund.id,
               refundedAt: booking.payment.refundedAt || new Date(),
               source: 'platform',
-              notes: 'Payment authorization cancelled before capture',
+              notes: 'Refund issued before transfer to professional',
             },
           },
         },
         { upsert: true }
       );
 
-      console.log(`✅ Payment cancelled for booking ${booking._id}`);
+      console.log(`✅ Payment refunded for booking ${booking._id}: ${refund.id}`);
 
       return res.json({
         success: true,
-        data: { message: 'Payment authorization cancelled', refundAmount }
+        data: { message: 'Payment refunded', refundId: refund.id, refundAmount }
       });
     }
 

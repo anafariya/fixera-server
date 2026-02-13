@@ -138,6 +138,7 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
   if (booking.payment.status === 'pending') {
     booking.payment.status = 'authorized';
     booking.payment.authorizedAt = new Date();
+    booking.payment.capturedAt = new Date();
     if (paymentIntent.latest_charge) {
       booking.payment.stripeChargeId = paymentIntent.latest_charge as string;
     }
@@ -149,6 +150,7 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
       {
         status: 'authorized',
         authorizedAt: booking.payment.authorizedAt,
+        capturedAt: booking.payment.capturedAt,
         stripeChargeId: booking.payment.stripeChargeId,
       }
     );

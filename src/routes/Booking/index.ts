@@ -9,7 +9,7 @@ import {
   updateBookingStatus,
   cancelBooking
 } from '../../handlers/Booking';
-import { respondToQuoteWithPayment, ensurePaymentIntent } from '../../handlers/Booking/payment-integration';
+import { respondToQuoteWithPayment, ensurePaymentIntent, updateBookingStatusWithPayment } from '../../handlers/Booking/payment-integration';
 import { protect } from '../../middlewares/auth';
 
 const router = express.Router();
@@ -39,8 +39,8 @@ router.post('/:bookingId/quote', submitQuote);
 router.post('/:bookingId/respond', respondToQuoteWithPayment);
 router.post('/:bookingId/payment-intent', ensurePaymentIntent);
 
-// Update booking status
-router.put('/:bookingId/status', updateBookingStatus);
+// Update booking status (with automatic payment transfer on completion)
+router.put('/:bookingId/status', updateBookingStatusWithPayment);
 
 // Cancel booking
 router.post('/:bookingId/cancel', cancelBooking);
