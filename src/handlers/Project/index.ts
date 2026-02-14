@@ -619,13 +619,6 @@ export const getProjectTeamAvailability = async (req: Request, res: Response) =>
       }
     });
 
-    // Normalize professional ID (can be undefined for legacy/broken records).
-    const professionalIdRaw = project.professionalId;
-    const professionalId =
-      typeof professionalIdRaw === "string"
-        ? professionalIdRaw
-        : professionalIdRaw?.toString();
-
     // Booking filter - must match scheduleEngine.ts buildPerMemberBlockedData for consistency
     // Both endpoints must use the same criteria to determine which bookings block resources
     const bookingFilter: any = {

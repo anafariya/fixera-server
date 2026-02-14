@@ -34,8 +34,7 @@ function toCountryCode(value: string | undefined): string | null {
 
   const trimmed = value.trim();
   // Already a 2-letter code
-  if (/^[A-Z]{2}$/.test(trimmed)) return trimmed;
-  if (/^[a-z]{2}$/.test(trimmed)) return trimmed.toUpperCase();
+  if (/^[A-Z]{2}$/i.test(trimmed)) return trimmed.toUpperCase();
   // Look up by name
   const mapped = COUNTRY_NAME_TO_CODE[trimmed.toLowerCase()];
   if (!mapped) {
@@ -127,7 +126,7 @@ export const createConnectAccount = async (req: Request, res: Response) => {
 
     const isCompany =
       Boolean((user as any).isCompany) ||
-      user.businessInfo?.companyName != null;
+      Boolean(user.businessInfo?.companyName?.trim());
     const businessType: 'company' | 'individual' = isCompany ? 'company' : 'individual';
 
     // Create new Stripe Connect Express account
@@ -334,6 +333,17 @@ export const createDashboardLink = async (req: Request, res: Response) => {
       return res.status(404).json({
         success: false,
         error: { code: 'NO_STRIPE_ACCOUNT', message: 'Stripe account not found' }
+      });
+    }
+
+    const account = await stripe.accounts.retrieve(user.stripe.accountId);
+    if (!account.details_submitted) {
+      return res.status(422).json({
+        success: false,
+        error: {
+          code: 'ONBOARDING_INCOMPLETE',
+          message: 'Stripe onboarding is incomplete. Please complete onboarding before opening the dashboard.',
+        },
       });
     }
 

@@ -427,7 +427,7 @@ export const confirmPayment = async (req: Request, res: Response) => {
       success: false,
       error: {
         code: 'STRIPE_ERROR',
-        message: error.message || 'Failed to confirm payment'
+        message: 'Failed to confirm payment'
       }
     });
   }
@@ -672,7 +672,10 @@ export const refundPayment = async (req: Request, res: Response) => {
     const refundAmount = normalizedAmount ?? totalWithVat;
 
     // Validate refund amount doesn't exceed remaining refundable amount
-    if (normalizedAmount && booking.payment.status === 'completed') {
+    if (
+      normalizedAmount &&
+      ['completed', 'authorized'].includes(booking.payment.status)
+    ) {
       const existingPayment = await Payment.findOne({ booking: booking._id });
       if (existingPayment) {
         const previousRefundTotal = (existingPayment.refunds || []).reduce(
@@ -783,7 +786,9 @@ export const refundPayment = async (req: Request, res: Response) => {
         normalizedAmount && normalizedAmount < totalWithVat ? 'partially_refunded' : 'refunded';
       booking.payment.refundedAt = new Date();
       booking.payment.refundReason = reason;
-      booking.status = 'refunded';
+      if (booking.payment.status === 'refunded') {
+        booking.status = 'refunded';
+      }
       await booking.save();
 
       await Payment.findOneAndUpdate(
@@ -831,7 +836,7 @@ export const refundPayment = async (req: Request, res: Response) => {
       success: false,
       error: {
         code: 'STRIPE_ERROR',
-        message: error.message || 'Failed to process refund'
+        message: 'Failed to refund payment'
       }
     });
   }

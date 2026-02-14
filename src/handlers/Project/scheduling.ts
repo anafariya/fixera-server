@@ -322,24 +322,29 @@ const countAvailableDays = (
  * Calculate overlap percentage between primary member's available days and other member's available days
  * within a specific window of days
  */
+type WindowAvailability = {
+  date: Date;
+  availableMembers: IUser[];
+  availableMemberIds: Set<string>;
+};
+
 const calculateOverlapPercentage = (
   primaryMember: IUser,
   otherMember: IUser,
-  windowDays: Date[]
+  windowAvailability: WindowAvailability[]
 ): number => {
-  if (windowDays.length === 0) return 0;
-
-  const primaryAvailableDays = windowDays.filter((day) => {
-    const available = getAvailableMembersForDay([primaryMember], day);
-    return available.length > 0;
-  });
+  if (windowAvailability.length === 0) return 0;
+  const primaryId = (primaryMember._id as any).toString();
+  const otherId = (otherMember._id as any).toString();
+  const primaryAvailableDays = windowAvailability.filter((dayInfo) =>
+    dayInfo.availableMemberIds.has(primaryId)
+  );
 
   if (primaryAvailableDays.length === 0) return 0;
 
-  const overlapDays = primaryAvailableDays.filter((day) => {
-    const available = getAvailableMembersForDay([otherMember], day);
-    return available.length > 0;
-  });
+  const overlapDays = primaryAvailableDays.filter((dayInfo) =>
+    dayInfo.availableMemberIds.has(otherId)
+  );
 
   return (overlapDays.length / primaryAvailableDays.length) * 100;
 };
@@ -350,11 +355,15 @@ const calculateOverlapPercentage = (
 const meetsOverlapRequirement = (
   primaryMember: IUser,
   otherMembers: IUser[],
-  windowDays: Date[],
+  windowAvailability: WindowAvailability[],
   minOverlapPercentage: number
 ): boolean => {
   for (const otherMember of otherMembers) {
-    const overlap = calculateOverlapPercentage(primaryMember, otherMember, windowDays);
+    const overlap = calculateOverlapPercentage(
+      primaryMember,
+      otherMember,
+      windowAvailability
+    );
     if (overlap < minOverlapPercentage) {
       return false;
     }
@@ -387,14 +396,14 @@ export const getScheduleProposalsForProject = async (
       project.executionDuration.unit
     );
 
-  // Buffer duration is optional, default to 0 if not set
+    // Buffer duration is optional, default to 0 if not set
     const bufferHours = project.bufferDuration
       ? toHours(project.bufferDuration.value, project.bufferDuration.unit)
       : 0;
 
     const totalHours = executionHours + bufferHours;
 
-  // Separate execution and buffer for formula calculations
+    // Separate execution and buffer for formula calculations
     const executionDays = Math.max(1, Math.ceil(executionHours / HOURS_PER_DAY));
     const bufferDays = Math.ceil(bufferHours / HOURS_PER_DAY);
 
@@ -433,54 +442,54 @@ export const getScheduleProposalsForProject = async (
 
     // Build day-by-day availability for a search horizon.
     const searchStart = startOfDay(earliestBookableDate);
-    const availabilityByDay: {
-      date: Date;
-      availableMembers: IUser[];
-    }[] = [];
+    const availabilityByDay: WindowAvailability[] = [];
 
     for (let i = 0; i < MAX_SEARCH_DAYS; i++) {
       const day = addDuration(searchStart, i, "days");
       const availableMembers = getAvailableMembersForDay(teamMembers, day);
+      const availableMemberIds = new Set(
+        availableMembers.map((member) => (member._id as any).toString())
+      );
       availabilityByDay.push({
         date: day,
-        availableMembers: availableMembers,
+        availableMembers,
+        availableMemberIds,
       });
     }
 
-  // Get the minimum overlap percentage from project settings (default 70%)
+    // Get the minimum overlap percentage from project settings (default 70%)
     const minOverlapPercentage = project.minOverlapPercentage || 70;
 
     if (mode === "hours") {
-    // Hours mode: All resources must be available for the entire project duration.
-    // We look for the earliest window where ALL minResources are continuously available.
-    const requiredDurationHours = totalHours;
-    const requiredDays = Math.max(
-      1,
-      Math.ceil(requiredDurationHours / HOURS_PER_DAY)
-    );
+      // Hours mode: All resources must be available for the entire project duration.
+      // We look for the earliest window where ALL minResources are continuously available.
+      const requiredDurationHours = totalHours;
+      const requiredDays = Math.max(
+        1,
+        Math.ceil(requiredDurationHours / HOURS_PER_DAY)
+      );
 
-    let earliestWindow: TimeWindow | undefined;
+      let earliestWindow: TimeWindow | undefined;
 
-    for (let i = 0; i <= MAX_SEARCH_DAYS - requiredDays; i++) {
-      const windowDays = availabilityByDay.slice(i, i + requiredDays);
+      for (let i = 0; i <= MAX_SEARCH_DAYS - requiredDays; i++) {
+        const windowAvailability = availabilityByDay.slice(i, i + requiredDays);
 
-      // Get all members available across ALL days in the window
-      const availableAcrossAllDays = teamMembers.filter((member) => {
-        return windowDays.every((dayInfo) => {
-          return dayInfo.availableMembers.some(
-            (m) => (m._id as any).toString() === (member._id as any).toString()
-          );
+        // Get all members available across ALL days in the window
+        const availableAcrossAllDays = teamMembers.filter((member) => {
+          const memberId = (member._id as any).toString();
+          return windowAvailability.every((dayInfo) => {
+            return dayInfo.availableMemberIds.has(memberId);
+          });
         });
-      });
 
-      // Check if we have enough resources available for entire duration
-      if (availableAcrossAllDays.length < minResources) continue;
+        // Check if we have enough resources available for entire duration
+        if (availableAcrossAllDays.length < minResources) continue;
 
-      const start = windowDays[0].date;
-      const end = addDuration(start, requiredDurationHours, "hours");
-      earliestWindow = { start, end };
-      break;
-    }
+        const start = windowAvailability[0].date;
+        const end = addDuration(start, requiredDurationHours, "hours");
+        earliestWindow = { start, end };
+        break;
+      }
 
       return {
         mode,
@@ -489,10 +498,10 @@ export const getScheduleProposalsForProject = async (
       };
     }
 
-  // Days mode: compute duration and throughput limits.
-  // NEW FORMULA: (execution + X%) + buffer
-  // Earliest: (execution + 100%) + buffer
-  // Shortest: (execution + 20%) + buffer
+    // Days mode: compute duration and throughput limits.
+    // NEW FORMULA: (execution + X%) + buffer
+    // Earliest: (execution + 100%) + buffer
+    // Shortest: (execution + 20%) + buffer
     const totalDays = Math.max(1, Math.ceil(totalHours / HOURS_PER_DAY));
     const maxThroughputEarliest = (executionDays * 2) + bufferDays; // (execution + 100%) + buffer
     const maxThroughputShortest = Math.max(
@@ -503,200 +512,183 @@ export const getScheduleProposalsForProject = async (
     let earliestProposal: TimeWindow | undefined;
     let shortestThroughputProposal: TimeWindow | undefined;
 
-  // EARLIEST POSSIBLE: Find earliest contiguous block where primary person (earliest availability)
-  // and other resources meet overlap requirements
+    // EARLIEST POSSIBLE: Find earliest contiguous block where primary person (earliest availability)
+    // and other resources meet overlap requirements
     if (minResources === 1) {
-    // Single resource - simple case
-    for (let i = 0; i <= MAX_SEARCH_DAYS - totalDays; i++) {
-      const windowDays = availabilityByDay.slice(i, i + totalDays);
-      const allDaysHaveResource = windowDays.every(
-        (d) => d.availableMembers.length >= 1
-      );
-
-      if (!allDaysHaveResource) continue;
-
-      const start = windowDays[0].date;
-      const end = addDuration(start, totalDays, "days");
-      earliestProposal = { start, end };
-      break;
-    }
-    } else {
-    // Multiple resources - need primary person selection and overlap calculation
-    // Find earliest availability for each member
-    const earliestAvailability = findEarliestAvailabilityPerMember(
-      teamMembers,
-      searchStart,
-      MAX_SEARCH_DAYS
-    );
-
-    // Select primary person: the one with earliest availability
-    let primaryMember: IUser | undefined;
-    let earliestDate: Date | undefined;
-
-    for (const member of teamMembers) {
-      const memberEarliestDate = earliestAvailability.get(
-        (member._id as any).toString()
-      );
-      if (!memberEarliestDate) continue;
-
-      if (!earliestDate || memberEarliestDate < earliestDate) {
-        earliestDate = memberEarliestDate;
-        primaryMember = member;
-      }
-    }
-
-    if (primaryMember) {
-      const otherMembers = teamMembers.filter(
-        (m) => (m._id as any).toString() !== (primaryMember!._id as any).toString()
-      );
-
-      // Search for earliest window where primary + others meet overlap requirements
-      for (let length = totalDays; length <= maxThroughputEarliest; length++) {
-        let found = false;
-        for (let i = 0; i <= MAX_SEARCH_DAYS - length; i++) {
-          const windowDays = availabilityByDay.slice(i, i + length);
-          const windowDates = windowDays.map((d) => d.date);
-
-          // Check if primary member is available enough days
-          const primaryAvailableDays = windowDays.filter((d) =>
-            d.availableMembers.some(
-              (m) => (m._id as any).toString() === (primaryMember!._id as any).toString()
-            )
-          );
-
-          if (primaryAvailableDays.length < totalDays) continue;
-
-          // Check if we have enough total resources per day
-          const hasEnoughResources = windowDays.every((d) => {
-            const count = d.availableMembers.filter((m) => {
-              const mId = (m._id as any).toString();
-              const primaryId = (primaryMember!._id as any).toString();
-              return (
-                mId === primaryId ||
-                otherMembers.some((om) => (om._id as any).toString() === mId)
-              );
-            }).length;
-            return count >= minResources;
-          });
-
-          if (!hasEnoughResources) continue;
-
-          // Check overlap requirement with other members
-          if (
-            otherMembers.length > 0 &&
-            !meetsOverlapRequirement(
-              primaryMember!,
-              otherMembers,
-              windowDates,
-              minOverlapPercentage
-            )
-          ) {
-            continue;
-          }
-
-          const start = windowDays[0].date;
-          const end = addDuration(start, length, "days");
-          earliestProposal = { start, end };
-          found = true;
-          break;
-        }
-        if (found) break;
-      }
-    }
-    }
-
-    if (minResources === 1) {
-    // Single resource - simple case
-    for (let length = totalDays; length <= maxThroughputShortest; length++) {
-      let found = false;
-      for (let i = 0; i <= MAX_SEARCH_DAYS - length; i++) {
-        const windowDays = availabilityByDay.slice(i, i + length);
-        const allDaysHaveResource = windowDays.every(
-          (d) => d.availableMembers.length >= 1
+      // Single resource - simple case
+      for (let i = 0; i <= MAX_SEARCH_DAYS - totalDays; i++) {
+        const windowAvailability = availabilityByDay.slice(i, i + totalDays);
+        const allDaysHaveResource = windowAvailability.every(
+          (dayInfo) => dayInfo.availableMembers.length >= 1
         );
 
         if (!allDaysHaveResource) continue;
 
-        const start = windowDays[0].date;
-        const end = addDuration(start, length, "days");
-        shortestThroughputProposal = { start, end };
-        found = true;
+        const start = windowAvailability[0].date;
+        const end = addDuration(start, totalDays, "days");
+        earliestProposal = { start, end };
         break;
       }
-      if (found) break;
-    }
     } else {
-    // Multiple resources - select primary person with MOST availability
-    const searchEnd = addDuration(searchStart, MAX_SEARCH_DAYS, "days");
-    let primaryMember: IUser | undefined;
-    let maxAvailableDays = 0;
-
-    for (const member of teamMembers) {
-      const availableDays = countAvailableDays(member, searchStart, searchEnd);
-      if (availableDays > maxAvailableDays) {
-        maxAvailableDays = availableDays;
-        primaryMember = member;
-      }
-    }
-
-    if (primaryMember) {
-      const otherMembers = teamMembers.filter(
-        (m) => (m._id as any).toString() !== (primaryMember!._id as any).toString()
+      // Multiple resources - need primary person selection and overlap calculation
+      // Find earliest availability for each member
+      const earliestAvailability = findEarliestAvailabilityPerMember(
+        teamMembers,
+        searchStart,
+        MAX_SEARCH_DAYS
       );
 
-      // Search for shortest window where primary + others meet overlap requirements
-      for (let length = totalDays; length <= maxThroughputShortest; length++) {
-        let found = false;
-        for (let i = 0; i <= MAX_SEARCH_DAYS - length; i++) {
-          const windowDays = availabilityByDay.slice(i, i + length);
-          const windowDates = windowDays.map((d) => d.date);
+      // Select primary person: the one with earliest availability
+      let primaryMember: IUser | undefined;
+      let earliestDate: Date | undefined;
 
-          // Check if primary member is available enough days
-          const primaryAvailableDays = windowDays.filter((d) =>
-            d.availableMembers.some(
-              (m) => (m._id as any).toString() === (primaryMember!._id as any).toString()
-            )
-          );
+      for (const member of teamMembers) {
+        const memberEarliestDate = earliestAvailability.get(
+          (member._id as any).toString()
+        );
+        if (!memberEarliestDate) continue;
 
-          if (primaryAvailableDays.length < totalDays) continue;
-
-          // Check if we have enough total resources per day
-          const hasEnoughResources = windowDays.every((d) => {
-            const count = d.availableMembers.filter((m) => {
-              const mId = (m._id as any).toString();
-              const primaryId = (primaryMember!._id as any).toString();
-              return (
-                mId === primaryId ||
-                otherMembers.some((om) => (om._id as any).toString() === mId)
-              );
-            }).length;
-            return count >= minResources;
-          });
-
-          if (!hasEnoughResources) continue;
-
-          // Check overlap requirement with other members
-          if (
-            otherMembers.length > 0 &&
-            !meetsOverlapRequirement(
-              primaryMember!,
-              otherMembers,
-              windowDates,
-              minOverlapPercentage
-            )
-          ) {
-            continue;
-          }
-
-          const start = windowDays[0].date;
-          const end = addDuration(start, length, "days");
-          shortestThroughputProposal = { start, end };
-          found = true;
-          break;
+        if (!earliestDate || memberEarliestDate < earliestDate) {
+          earliestDate = memberEarliestDate;
+          primaryMember = member;
         }
-        if (found) break;
+      }
+
+      if (primaryMember) {
+        const otherMembers = teamMembers.filter(
+          (member) =>
+            (member._id as any).toString() !==
+            (primaryMember!._id as any).toString()
+        );
+
+        // Search for earliest window where primary + others meet overlap requirements
+        for (let length = totalDays; length <= maxThroughputEarliest; length++) {
+          let found = false;
+          for (let i = 0; i <= MAX_SEARCH_DAYS - length; i++) {
+            const windowAvailability = availabilityByDay.slice(i, i + length);
+
+            // Check if primary member is available enough days
+            const primaryId = (primaryMember._id as any).toString();
+            const primaryAvailableDays = windowAvailability.filter((dayInfo) =>
+              dayInfo.availableMemberIds.has(primaryId)
+            );
+            if (primaryAvailableDays.length < totalDays) continue;
+
+            // Check if we have enough total resources per day
+            const otherMemberIds = new Set(
+              otherMembers.map((member) => (member._id as any).toString())
+            );
+            const hasEnoughResources = windowAvailability.every((dayInfo) => {
+              let count = 0;
+              dayInfo.availableMemberIds.forEach((memberId) => {
+                if (memberId === primaryId || otherMemberIds.has(memberId)) {
+                  count += 1;
+                }
+              });
+              return count >= minResources;
+            });
+            if (!hasEnoughResources) continue;
+
+            // Check overlap requirement with other members
+            if (
+              otherMembers.length > 0 &&
+              !meetsOverlapRequirement(
+                primaryMember,
+                otherMembers,
+                windowAvailability,
+                minOverlapPercentage
+              )
+            ) {
+              continue;
+            }
+
+            const start = windowAvailability[0].date;
+            const end = addDuration(start, length, "days");
+            earliestProposal = { start, end };
+            found = true;
+            break;
+          }
+          if (found) break;
+        }
       }
     }
+
+    if (minResources === 1) {
+      // For single-resource projects, shortest throughput equals earliest feasible window.
+      if (earliestProposal) {
+        shortestThroughputProposal = earliestProposal;
+      }
+    } else {
+      // Multiple resources - select primary person with MOST availability
+      const searchEnd = addDuration(searchStart, MAX_SEARCH_DAYS, "days");
+      let primaryMember: IUser | undefined;
+      let maxAvailableDays = 0;
+
+      for (const member of teamMembers) {
+        const availableDays = countAvailableDays(member, searchStart, searchEnd);
+        if (availableDays > maxAvailableDays) {
+          maxAvailableDays = availableDays;
+          primaryMember = member;
+        }
+      }
+
+      if (primaryMember) {
+        const otherMembers = teamMembers.filter(
+          (member) =>
+            (member._id as any).toString() !==
+            (primaryMember!._id as any).toString()
+        );
+
+        // Search for shortest window where primary + others meet overlap requirements
+        for (let length = totalDays; length <= maxThroughputShortest; length++) {
+          let found = false;
+          for (let i = 0; i <= MAX_SEARCH_DAYS - length; i++) {
+            const windowAvailability = availabilityByDay.slice(i, i + length);
+
+            // Check if primary member is available enough days
+            const primaryId = (primaryMember._id as any).toString();
+            const primaryAvailableDays = windowAvailability.filter((dayInfo) =>
+              dayInfo.availableMemberIds.has(primaryId)
+            );
+            if (primaryAvailableDays.length < totalDays) continue;
+
+            // Check if we have enough total resources per day
+            const otherMemberIds = new Set(
+              otherMembers.map((member) => (member._id as any).toString())
+            );
+            const hasEnoughResources = windowAvailability.every((dayInfo) => {
+              let count = 0;
+              dayInfo.availableMemberIds.forEach((memberId) => {
+                if (memberId === primaryId || otherMemberIds.has(memberId)) {
+                  count += 1;
+                }
+              });
+              return count >= minResources;
+            });
+            if (!hasEnoughResources) continue;
+
+            // Check overlap requirement with other members
+            if (
+              otherMembers.length > 0 &&
+              !meetsOverlapRequirement(
+                primaryMember,
+                otherMembers,
+                windowAvailability,
+                minOverlapPercentage
+              )
+            ) {
+              continue;
+            }
+
+            const start = windowAvailability[0].date;
+            const end = addDuration(start, length, "days");
+            shortestThroughputProposal = { start, end };
+            found = true;
+            break;
+          }
+          if (found) break;
+        }
+      }
     }
 
     return {

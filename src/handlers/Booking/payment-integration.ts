@@ -5,8 +5,7 @@
 
 import { Request, Response } from 'express';
 import Booking, { BookingStatus } from '../../models/booking';
-import { createPaymentIntent } from '../Stripe/payment';
-import { captureAndTransferPayment } from '../Stripe/payment';
+import { createPaymentIntent, captureAndTransferPayment } from '../Stripe/payment';
 
 const BOOKING_STATUS_VALUES: BookingStatus[] = [
   'rfq',

@@ -242,13 +242,25 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
       }
 
       // Footer
+      const tableContentBottom = data.vatExplanation ? tableTop + 170 : tableTop + 100;
+      const contentBottom = Math.max(doc.y, tableContentBottom);
+      const footerHeight = 30;
+      const footerPadding = 20;
+      const maxFooterY = doc.page.height - doc.page.margins.bottom - footerHeight;
+      let footerY = contentBottom + footerPadding;
+
+      if (footerY > maxFooterY) {
+        doc.addPage();
+        footerY = doc.page.margins.top;
+      }
+
       doc
         .fontSize(8)
-        .text("Thank you for using Fixera!", 50, 700, {
+        .text("Thank you for using Fixera!", 50, footerY, {
           align: "center",
           width: 500,
         })
-        .text("This invoice was generated automatically by the Fixera platform.", 50, 715, {
+        .text("This invoice was generated automatically by the Fixera platform.", 50, footerY + 15, {
           align: "center",
           width: 500,
         });

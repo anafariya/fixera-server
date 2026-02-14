@@ -331,24 +331,6 @@ export function buildTransferMetadata(
   };
 }
 
-// ==================== Date Utilities ====================
-
-/**
- * Check if payment authorization is about to expire
- * Stripe allows capture within 7 days
- * @param authorizedAt - Date when payment was authorized
- * @param warningDays - Days before expiry to warn (default 6)
- * @returns True if payment is expiring soon
- */
-export function isPaymentExpiringSoon(
-  authorizedAt: Date,
-  warningDays: number = 6
-): boolean {
-  const now = new Date();
-  const daysSinceAuth = (now.getTime() - authorizedAt.getTime()) / (1000 * 60 * 60 * 24);
-  return daysSinceAuth >= warningDays;
-}
-
 // ==================== Export All ====================
 
 export default {
@@ -366,5 +348,4 @@ export default {
   validatePaymentAmount,
   buildPaymentMetadata,
   buildTransferMetadata,
-  isPaymentExpiringSoon,
 };
