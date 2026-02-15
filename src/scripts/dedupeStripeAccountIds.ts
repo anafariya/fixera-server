@@ -5,17 +5,16 @@ import User from "../models/user";
 dotenv.config();
 
 async function dedupeStripeAccountIds(apply = false) {
-  const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
-  if (!mongoUri) {
-    throw new Error("MONGO_URI or MONGODB_URI not found in environment variables");
-  }
-
   const initialReadyState = mongoose.connection.readyState;
   const shouldOpenConnection = initialReadyState === 0;
   let openedConnection = false;
 
   try {
     if (shouldOpenConnection) {
+      const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
+      if (!mongoUri) {
+        throw new Error("MONGO_URI or MONGODB_URI not found in environment variables");
+      }
       await mongoose.connect(mongoUri);
       openedConnection = true;
       console.log("Connected to MongoDB");

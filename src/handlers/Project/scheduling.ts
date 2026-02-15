@@ -196,7 +196,13 @@ const calculateBlockedHoursForDay = (member: IUser, day: Date): number => {
   const dayEnd = new Date(day);
   dayEnd.setHours(endHour, endMin, 0, 0);
 
-  const totalWorkingHours = (dayEnd.getTime() - dayStart.getTime()) / (1000 * 60 * 60);
+  const rawWorkingHours = (dayEnd.getTime() - dayStart.getTime()) / (1000 * 60 * 60);
+  const totalWorkingHours = Math.max(0, rawWorkingHours);
+  if (rawWorkingHours < 0) {
+    console.warn(
+      `[SCHEDULING] Invalid availability time range for member ${(member._id as any)?.toString?.() || "unknown"} on ${day.toISOString()}: startTime=${startTime}, endTime=${endTime}`
+    );
+  }
 
   // Check for full-day blocked dates
   const hasBlockedDate =
@@ -271,20 +277,21 @@ const getAvailableMembersForDay = (members: IUser[], day: Date): IUser[] => {
  */
 const findEarliestAvailabilityPerMember = (
   members: IUser[],
-  searchStart: Date,
-  maxDays: number
+  availabilityByDay: WindowAvailability[]
 ): Map<string, Date> => {
   const result = new Map<string, Date>();
 
-  for (const member of members) {
-    for (let i = 0; i < maxDays; i++) {
-      const day = addDuration(searchStart, i, "days");
-      const availableMembers = getAvailableMembersForDay([member], day);
+  const memberIds = new Set(members.map((member) => (member._id as any).toString()));
 
-      if (availableMembers.length > 0) {
-        result.set((member._id as any).toString(), day);
-        break;
+  for (const dayInfo of availabilityByDay) {
+    dayInfo.availableMemberIds.forEach((memberId) => {
+      if (memberIds.has(memberId) && !result.has(memberId)) {
+        result.set(memberId, dayInfo.date);
       }
+    });
+
+    if (result.size === memberIds.size) {
+      break;
     }
   }
 
@@ -296,22 +303,12 @@ const findEarliestAvailabilityPerMember = (
  */
 const countAvailableDays = (
   member: IUser,
-  startDate: Date,
-  endDate: Date
+  availabilityByDay: WindowAvailability[]
 ): number => {
-  let count = 0;
-  let currentDate = startOfDay(startDate);
-  const endDay = startOfDay(endDate);
-
-  while (currentDate <= endDay) {
-    const availableMembers = getAvailableMembersForDay([member], currentDate);
-    if (availableMembers.length > 0) {
-      count++;
-    }
-    currentDate = addDuration(currentDate, 1, "days");
-  }
-
-  return count;
+  const memberId = (member._id as any).toString();
+  return availabilityByDay.reduce((count, dayInfo) => {
+    return dayInfo.availableMemberIds.has(memberId) ? count + 1 : count;
+  }, 0);
 };
 
 /**
@@ -511,8 +508,7 @@ export const getScheduleProposalsForProject = async (
       // Find earliest availability for each member
       const earliestAvailability = findEarliestAvailabilityPerMember(
         teamMembers,
-        searchStart,
-        MAX_SEARCH_DAYS
+        availabilityByDay
       );
 
       // Select primary person: the one with earliest availability
@@ -532,11 +528,15 @@ export const getScheduleProposalsForProject = async (
       }
 
       if (primaryMember) {
+        const primaryId = (primaryMember._id as any).toString();
         const otherMembers = teamMembers.filter(
           (member) =>
-            (member._id as any).toString() !==
-            (primaryMember!._id as any).toString()
+            (member._id as any).toString() !== primaryId
         );
+        const otherMemberIds = new Set(
+          otherMembers.map((member) => (member._id as any).toString())
+        );
+        const requiredMemberIds = new Set<string>([primaryId, ...otherMemberIds]);
 
         // Search for earliest window where primary + others meet overlap requirements
         for (let length = totalDays; length <= maxThroughputEarliest; length++) {
@@ -545,20 +545,16 @@ export const getScheduleProposalsForProject = async (
             const windowAvailability = availabilityByDay.slice(i, i + length);
 
             // Check if primary member is available enough days
-            const primaryId = (primaryMember._id as any).toString();
             const primaryAvailableDays = windowAvailability.filter((dayInfo) =>
               dayInfo.availableMemberIds.has(primaryId)
             );
             if (primaryAvailableDays.length < totalDays) continue;
 
             // Check if we have enough total resources per day
-            const otherMemberIds = new Set(
-              otherMembers.map((member) => (member._id as any).toString())
-            );
             const hasEnoughResources = windowAvailability.every((dayInfo) => {
               let count = 0;
               dayInfo.availableMemberIds.forEach((memberId) => {
-                if (memberId === primaryId || otherMemberIds.has(memberId)) {
+                if (requiredMemberIds.has(memberId)) {
                   count += 1;
                 }
               });
@@ -597,12 +593,11 @@ export const getScheduleProposalsForProject = async (
       }
     } else {
       // Multiple resources - select primary person with MOST availability
-      const searchEnd = addDuration(searchStart, MAX_SEARCH_DAYS, "days");
       let primaryMember: IUser | undefined;
       let maxAvailableDays = 0;
 
       for (const member of teamMembers) {
-        const availableDays = countAvailableDays(member, searchStart, searchEnd);
+        const availableDays = countAvailableDays(member, availabilityByDay);
         if (availableDays > maxAvailableDays) {
           maxAvailableDays = availableDays;
           primaryMember = member;
@@ -610,11 +605,15 @@ export const getScheduleProposalsForProject = async (
       }
 
       if (primaryMember) {
+        const primaryId = (primaryMember._id as any).toString();
         const otherMembers = teamMembers.filter(
           (member) =>
-            (member._id as any).toString() !==
-            (primaryMember!._id as any).toString()
+            (member._id as any).toString() !== primaryId
         );
+        const otherMemberIds = new Set(
+          otherMembers.map((member) => (member._id as any).toString())
+        );
+        const requiredMemberIds = new Set<string>([primaryId, ...otherMemberIds]);
 
         // Search for shortest window where primary + others meet overlap requirements
         for (let length = totalDays; length <= maxThroughputShortest; length++) {
@@ -623,20 +622,16 @@ export const getScheduleProposalsForProject = async (
             const windowAvailability = availabilityByDay.slice(i, i + length);
 
             // Check if primary member is available enough days
-            const primaryId = (primaryMember._id as any).toString();
             const primaryAvailableDays = windowAvailability.filter((dayInfo) =>
               dayInfo.availableMemberIds.has(primaryId)
             );
             if (primaryAvailableDays.length < totalDays) continue;
 
             // Check if we have enough total resources per day
-            const otherMemberIds = new Set(
-              otherMembers.map((member) => (member._id as any).toString())
-            );
             const hasEnoughResources = windowAvailability.every((dayInfo) => {
               let count = 0;
               dayInfo.availableMemberIds.forEach((memberId) => {
-                if (memberId === primaryId || otherMemberIds.has(memberId)) {
+                if (requiredMemberIds.has(memberId)) {
                   count += 1;
                 }
               });
