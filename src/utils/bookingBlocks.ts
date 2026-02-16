@@ -82,7 +82,7 @@ export const buildBookingBlockedRanges = async (
           location: booking.location,
         });
       } else {
-        console.warn(`[buildBookingBlockedRanges] Invalid dates for booking ${booking._id} - start: ${booking.scheduledStartDate}, end: ${scheduledExecutionEndDate}`);
+        console.warn(`[buildBookingBlockedRanges] Invalid dates for booking ${String(booking._id)} - start: ${booking.scheduledStartDate}, end: ${scheduledExecutionEndDate}`);
       }
     }
 
@@ -104,7 +104,7 @@ export const buildBookingBlockedRanges = async (
           location: booking.location,
         });
       } else {
-        console.warn(`[buildBookingBlockedRanges] Invalid buffer dates for booking ${booking._id} - start: ${scheduledBufferStartDate}, end: ${scheduledBufferEndDate}`);
+        console.warn(`[buildBookingBlockedRanges] Invalid buffer dates for booking ${String(booking._id)} - start: ${scheduledBufferStartDate}, end: ${scheduledBufferEndDate}`);
       }
     }
   });
