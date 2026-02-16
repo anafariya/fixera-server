@@ -2104,10 +2104,8 @@ export const buildProjectScheduleProposalsWithData = async (
       // Track selected subset for multi-resource mode (used in advanceWorkingDays for overlap %)
       let selectedSubset: string[] | null = null;
 
-      // For multi-resource days mode, use window-based overlap check instead of
-      // strict per-day check. This allows start dates where not all minResources
-      // are available on the start day, as long as the execution window meets
-      // the overlap percentage requirement (matching availability endpoint logic).
+      // For multi-resource days mode, use window-based overlap check, but still
+      // enforce that the chosen start day has at least minResources available.
       if (useMultiResource && perMemberBlocked && resourcePolicy) {
         // Still require it to be a working day
         const isWorking = isWorkingDay(availability, currentDay);
@@ -2140,6 +2138,24 @@ export const buildProjectScheduleProposalsWithData = async (
         if (isInCompanyBlockedRange) {
           if (enableScheduleDebug) {
             console.log(`[SCHEDULE_PROPOSALS] Skipping ${dateKey} - date is within a company-blocked range`);
+          }
+          continue;
+        }
+
+        // Start day must have enough resources available for the project's minResources.
+        // This prevents proposing windows that begin on an unavailable day.
+        const availableOnStartDay = countAvailableResourcesForDay(
+          perMemberBlocked,
+          availability,
+          currentDay,
+          timeZone
+        );
+        if (availableOnStartDay < resourcePolicy.minResources) {
+          if (enableScheduleDebug) {
+            console.log(
+              `[SCHEDULE_PROPOSALS] Skipping ${dateKey} - insufficient start-day resources ` +
+              `(available=${availableOnStartDay}, required=${resourcePolicy.minResources})`
+            );
           }
           continue;
         }
@@ -2416,14 +2432,23 @@ export const validateProjectScheduleSelection = async ({
 
   const executionDays = Math.max(1, Math.ceil(durations.execution.value));
 
-  // For multi-resource days mode, use window-based overlap check instead of
-  // strict per-day check. This allows dates where not all minResources are
-  // available on the start day, as long as the execution window meets the
-  // overlap percentage requirement.
+  // For multi-resource days mode, use window-based overlap check, but still
+  // enforce that the selected start day has at least minResources available.
   if (useMultiResource && perMemberBlocked && resourcePolicy) {
     // Still require it to be a working day
     if (!isWorkingDay(availability, selectedZoned)) {
       return { valid: false, reason: "Selected date is not a working day" };
+    }
+
+    // Start day must satisfy minimum team availability.
+    const availableOnStartDay = countAvailableResourcesForDay(
+      perMemberBlocked,
+      availability,
+      selectedZoned,
+      timeZone
+    );
+    if (availableOnStartDay < resourcePolicy.minResources) {
+      return { valid: false, reason: "Selected date does not have enough team members available" };
     }
 
     const selectedSubset = findFirstEligibleSubsetForDays(
@@ -2686,14 +2711,27 @@ export const buildProjectScheduleWindow = async ({
     useMultiResource,
   });
 
-  // For multi-resource days mode, use window-based overlap check instead of
-  // strict per-day check. This allows dates where not all minResources are
-  // available on the start day, as long as the execution window meets the
-  // overlap percentage requirement.
+  // For multi-resource days mode, use window-based overlap check, but still
+  // enforce that the selected start day has at least minResources available.
   if (useMultiResource && perMemberBlocked && resourcePolicy) {
     // Still require it to be a working day
     if (!isWorkingDay(availability, selectedZoned)) {
       console.log('[SCHEDULE_WINDOW] Start date is not a working day');
+      return null;
+    }
+
+    // Start day must satisfy minimum team availability.
+    const availableOnStartDay = countAvailableResourcesForDay(
+      perMemberBlocked,
+      availability,
+      selectedZoned,
+      timeZone
+    );
+    if (availableOnStartDay < resourcePolicy.minResources) {
+      console.log('[SCHEDULE_WINDOW] Start date has insufficient available resources:', {
+        availableOnStartDay,
+        required: resourcePolicy.minResources,
+      });
       return null;
     }
 

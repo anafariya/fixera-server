@@ -13,6 +13,14 @@ const getS3KeyFromValue = (value?: string): string | null => {
   return null;
 };
 
+const normalizePendingOldValue = (value?: string): string | undefined => {
+  const normalized = value?.trim();
+  if (!normalized || normalized === '(none)') {
+    return undefined;
+  }
+  return normalized;
+};
+
 const buildS3UrlFromKey = (key: string): string => {
   const bucket = process.env.S3_BUCKET_NAME || 'fixera-uploads';
   const region = process.env.AWS_REGION || 'us-east-1';
@@ -581,11 +589,12 @@ export const reviewIdChanges = async (req: Request, res: Response, next: NextFun
       // Reject: revert the changes
       for (const change of professional.pendingIdChanges) {
         if (change.field === 'idCountryOfIssue') {
-          professional.idCountryOfIssue = change.oldValue || undefined;
+          professional.idCountryOfIssue = normalizePendingOldValue(change.oldValue);
         } else if (change.field === 'idExpirationDate') {
-          professional.idExpirationDate = change.oldValue ? new Date(change.oldValue) : undefined;
+          const oldDateValue = normalizePendingOldValue(change.oldValue);
+          professional.idExpirationDate = oldDateValue ? new Date(oldDateValue) : undefined;
         } else if (change.field === 'idProofDocument') {
-          const oldValue = change.oldValue?.trim();
+          const oldValue = normalizePendingOldValue(change.oldValue);
           const newValue = change.newValue?.trim();
 
           if (oldValue && oldValue.startsWith('http')) {
