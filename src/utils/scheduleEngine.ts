@@ -69,7 +69,7 @@ export type ResourcePolicy = {
 
 export const DEFAULT_MIN_OVERLAP_PERCENTAGE = 90;
 
-const DAY_KEYS = [
+export const DAY_KEYS = [
   "sunday",
   "monday",
   "tuesday",
@@ -79,7 +79,7 @@ const DAY_KEYS = [
   "saturday",
 ];
 
-const PARTIAL_BLOCK_THRESHOLD_HOURS = 4;
+export const PARTIAL_BLOCK_THRESHOLD_HOURS = 4;
 
 /**
  * Safely convert string IDs to MongoDB ObjectIds, filtering out invalid IDs.
@@ -188,7 +188,7 @@ export const fromZonedTime = (zonedDate: Date, timeZone: string): Date => {
   return dt.toJSDate();
 };
 
-const startOfDayZoned = (zonedDate: Date) =>
+export const startOfDayZoned = (zonedDate: Date) =>
   new Date(
     Date.UTC(
       zonedDate.getUTCFullYear(),
@@ -207,13 +207,13 @@ const addDaysZoned = (zonedDate: Date, days: number) => {
   return next;
 };
 
-const isExactMidnightUtc = (date: Date) =>
+export const isExactMidnightUtc = (date: Date) =>
   date.getUTCHours() === 0 &&
   date.getUTCMinutes() === 0 &&
   date.getUTCSeconds() === 0 &&
   date.getUTCMilliseconds() === 0;
 
-const normalizeRangeEndInclusive = (rangeEnd: Date, timeZone: string) => {
+export const normalizeRangeEndInclusive = (rangeEnd: Date, timeZone: string) => {
   if (!isExactMidnightUtc(rangeEnd)) return rangeEnd;
   const endZoned = toZonedTime(rangeEnd, timeZone);
   const endDayStart = startOfDayZoned(endZoned);
@@ -228,7 +228,7 @@ const formatDateKey = (zonedDate: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-const parseTimeToMinutes = (value?: string) => {
+export const parseTimeToMinutes = (value?: string) => {
   if (!value) return null;
   const [hours, minutes] = value.split(":").map(Number);
   if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
@@ -797,7 +797,7 @@ const isMemberDayBlocked = (
   if (memberData.blockedDates.has(dateKey)) return true;
   if (!isWorkingDay(availability, zonedDate)) return true;
 
-  const workingRange = buildWorkingRangeUtc(availability, zonedDate, timeZone);
+  const workingRange = getWorkingRangeUtc(availability, zonedDate, timeZone);
   if (!workingRange) return true;
 
   const dayStartUtc = fromZonedTime(startOfDayZoned(zonedDate), timeZone);
@@ -1274,7 +1274,7 @@ const loadProjectAndProfessional = async (projectId: string) => {
   return { project, professional: professional || null };
 };
 
-const buildWorkingRangeUtc = (
+export const getWorkingRangeUtc = (
   availability: Record<string, any>,
   zonedDate: Date,
   timeZone: string
@@ -1312,7 +1312,7 @@ const isDayBlocked = (
   if (blockedDates.has(dateKey)) return true;
   if (!isWorkingDay(availability, zonedDate)) return true;
 
-  const workingRange = buildWorkingRangeUtc(availability, zonedDate, timeZone);
+  const workingRange = getWorkingRangeUtc(availability, zonedDate, timeZone);
   if (!workingRange) return true;
 
   const dayStartUtc = fromZonedTime(startOfDayZoned(zonedDate), timeZone);

@@ -7,9 +7,9 @@ import mongoose from 'mongoose';
 import { PhoneNumberUtil, PhoneNumberFormat } from 'google-libphonenumber';
 import { getCountryCode } from '../../utils/geocoding';
 import { formatVATNumber, isValidVATFormat, validateVATNumber } from "../../utils/viesApi";
+import { NO_PREVIOUS_VALUE, normalizePendingIdChanges } from "../../utils/pendingIdChanges";
 
 const phoneUtil = PhoneNumberUtil.getInstance();
-const NO_PREVIOUS_VALUE = '(none)';
 const maskEmail = (email: string): string => {
   if (!email) return 'Unknown';
   const [local, domain] = email.split('@');
@@ -884,15 +884,6 @@ export const updateIdInfo = async (req: Request, res: Response, next: NextFuncti
       });
     }
 
-    // Defensive runtime guard:
-    // if an older schema version with `oldValue: { required: true }` is loaded,
-    // force-disable it so this request can proceed with sanitized values.
-    const pendingChangesPath = (User.schema.path('pendingIdChanges') as any)?.schema?.path('oldValue');
-    if (pendingChangesPath?.options?.required === true) {
-      pendingChangesPath.required(false);
-      console.warn('ID Info: normalized schema at runtime (pendingIdChanges.oldValue required=false)');
-    }
-
     // Track changes for admin review
     const changes: { field: string; oldValue: string; newValue: string }[] = [];
 
@@ -940,14 +931,8 @@ export const updateIdInfo = async (req: Request, res: Response, next: NextFuncti
 
     // Store pending changes for admin review
     // Clean any existing entries with empty oldValue to avoid Mongoose validation errors
-    const existingChanges = (user.pendingIdChanges || [])
-      .filter((c: { field?: string; newValue?: string }) => !!c.field && !!c.newValue)
-      .map((c: { field: string; oldValue?: string; newValue: string }) => ({
-        field: c.field,
-        oldValue: (c.oldValue || '').trim() || NO_PREVIOUS_VALUE,
-        newValue: c.newValue
-      }));
-    user.pendingIdChanges = [...existingChanges, ...changes];
+    const existingChanges = normalizePendingIdChanges(user.pendingIdChanges) || [];
+    user.pendingIdChanges = normalizePendingIdChanges([...existingChanges, ...changes]);
     user.markModified('pendingIdChanges');
 
     // Trigger re-verification only if already approved
@@ -982,14 +967,13 @@ export const updateIdInfo = async (req: Request, res: Response, next: NextFuncti
     });
 
   } catch (error: any) {
-    console.error('Update ID info error:', error?.message || error);
+    console.error('Update ID info error:', error);
     if (error?.name === 'ValidationError') {
       console.error('Validation details:', JSON.stringify(error.errors, null, 2));
     }
     return res.status(500).json({
       success: false,
-      msg: "Failed to update ID information",
-      debug: error?.message || String(error)
+      msg: "Internal server error"
     });
   }
 };

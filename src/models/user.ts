@@ -1,4 +1,5 @@
 import { Schema, model, Document } from "mongoose";
+import { normalizePendingIdChanges } from "../utils/pendingIdChanges";
 
 export type UserRole = "admin" | "visitor" | "customer" | "professional" | "employee";
 export type CustomerType = "individual" | "business";
@@ -470,17 +471,16 @@ const UserSchema = new Schema({
 });
 
 UserSchema.pre("save", function (next) {
-    if (Array.isArray(this.pendingIdChanges)) {
-        const normalizedPendingChanges = this.pendingIdChanges
-            .filter((change: { field?: string; newValue?: string }) => !!change?.field && !!change?.newValue)
-            .map((change: { field: string; oldValue?: string | null; newValue: string }) => ({
-                field: change.field,
-                oldValue: (change.oldValue || '').trim() || '(none)',
-                newValue: change.newValue
-            }));
-
-        this.set("pendingIdChanges", normalizedPendingChanges.length > 0 ? normalizedPendingChanges : undefined);
-    }
+    this.set(
+        "pendingIdChanges",
+        normalizePendingIdChanges(
+            this.pendingIdChanges as Array<{
+                field?: string;
+                oldValue?: string | null;
+                newValue?: string;
+            }>
+        )
+    );
 
     const isBusinessCustomer = this.role === "customer" && this.customerType === "business";
     if (!isBusinessCustomer) {

@@ -5,8 +5,20 @@ import Project from "../../models/project";
 import Booking from "../../models/booking";
 import ServiceCategory from "../../models/serviceCategory";
 import User from "../../models/user";
-import { buildProjectScheduleProposals, buildProjectScheduleWindow, getResourcePolicy, toZonedTime, fromZonedTime, type ResourcePolicy } from "../../utils/scheduleEngine";
-import { DEFAULT_AVAILABILITY, resolveAvailability } from "../../utils/availabilityHelpers";
+import {
+  buildProjectScheduleProposals,
+  buildProjectScheduleWindow,
+  DAY_KEYS,
+  fromZonedTime,
+  getResourcePolicy,
+  getWorkingRangeUtc,
+  normalizeRangeEndInclusive,
+  PARTIAL_BLOCK_THRESHOLD_HOURS,
+  startOfDayZoned,
+  toZonedTime,
+  type ResourcePolicy
+} from "../../utils/scheduleEngine";
+import { resolveAvailability } from "../../utils/availabilityHelpers";
 import { normalizePreparationDuration } from "../../utils/projectDurations";
 // import { seedServiceCategories } from '../../scripts/seedProject';
 
@@ -80,101 +92,16 @@ const buildNonWorkingDates = (
   availability: Record<string, any>
 ) => {
   const nonWorking: string[] = [];
-  const dayNames = [
-    "sunday",
-    "monday",
-    "tuesday",
-    "wednesday",
-    "thursday",
-    "friday",
-    "saturday",
-  ];
   const cursor = new Date(rangeStart);
   while (cursor <= rangeEnd) {
     const zoned = toZonedTime(cursor, timeZone);
-    const dayAvailability = availability[dayNames[zoned.getUTCDay()]];
+    const dayAvailability = availability[DAY_KEYS[zoned.getUTCDay()]];
     if (!dayAvailability || dayAvailability.available === false) {
       nonWorking.push(toLocalMidnightUtc(cursor, timeZone).toISOString());
     }
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return nonWorking;
-};
-
-const PARTIAL_BLOCK_THRESHOLD_HOURS = 4;
-const DAY_KEYS = [
-  "sunday",
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday",
-];
-
-const parseTimeToMinutes = (value?: string) => {
-  if (!value) return null;
-  const [hours, minutes] = value.split(":").map(Number);
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
-  return hours * 60 + minutes;
-};
-
-const startOfDayZoned = (zonedDate: Date) =>
-  new Date(
-    Date.UTC(
-      zonedDate.getUTCFullYear(),
-      zonedDate.getUTCMonth(),
-      zonedDate.getUTCDate(),
-      0,
-      0,
-      0,
-      0
-    )
-  );
-
-const isExactMidnightUtc = (date: Date) =>
-  date.getUTCHours() === 0 &&
-  date.getUTCMinutes() === 0 &&
-  date.getUTCSeconds() === 0 &&
-  date.getUTCMilliseconds() === 0;
-
-const normalizeRangeEndInclusive = (rangeEnd: Date, timeZone: string) => {
-  if (!isExactMidnightUtc(rangeEnd)) return rangeEnd;
-  const endZoned = toZonedTime(rangeEnd, timeZone);
-  const endDayStart = startOfDayZoned(endZoned);
-  const endDayNextStart = new Date(endDayStart.getTime());
-  endDayNextStart.setUTCDate(endDayNextStart.getUTCDate() + 1);
-  return fromZonedTime(endDayNextStart, timeZone);
-};
-
-const getWorkingRangeUtc = (
-  availability: Record<string, any>,
-  zonedDate: Date,
-  timeZone: string
-) => {
-  const dayKey = DAY_KEYS[zonedDate.getUTCDay()];
-  const dayAvailability = availability?.[dayKey];
-  if (!dayAvailability || dayAvailability.available === false) {
-    return null;
-  }
-
-  const defaultDay = (DEFAULT_AVAILABILITY as any)[dayKey] || {};
-  const startMinutes = parseTimeToMinutes(dayAvailability.startTime || defaultDay.startTime || "09:00");
-  const endMinutes = parseTimeToMinutes(dayAvailability.endTime || defaultDay.endTime || "17:00");
-  if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
-    return null;
-  }
-
-  const dayStartZoned = startOfDayZoned(zonedDate);
-  const startZoned = new Date(dayStartZoned.getTime());
-  startZoned.setUTCHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
-  const endZoned = new Date(dayStartZoned.getTime());
-  endZoned.setUTCHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
-
-  const startUtc = fromZonedTime(startZoned, timeZone);
-  const endUtc = fromZonedTime(endZoned, timeZone);
-  if (endUtc <= startUtc) return null;
-  return { startUtc, endUtc };
 };
 
 /**

@@ -5,20 +5,13 @@ import jwt from 'jsonwebtoken';
 import { sendProfessionalApprovalEmail, sendProfessionalIdChangeApprovalEmail, sendProfessionalIdChangeRejectionEmail, sendProfessionalRejectionEmail, sendProfessionalSuspensionEmail, sendProfessionalReactivationEmail } from "../../utils/emailService";
 import { deleteFromS3, parseS3KeyFromUrl } from "../../utils/s3Upload";
 import mongoose from 'mongoose';
+import { normalizePendingOldValue } from "../../utils/pendingIdChanges";
 
 const getS3KeyFromValue = (value?: string): string | null => {
   if (!value) return null;
   if (value.startsWith('id-proof/')) return value;
   if (value.startsWith('http')) return parseS3KeyFromUrl(value);
   return null;
-};
-
-const normalizePendingOldValue = (value?: string): string | undefined => {
-  const normalized = value?.trim();
-  if (!normalized || normalized === '(none)') {
-    return undefined;
-  }
-  return normalized;
 };
 
 const buildS3UrlFromKey = (key: string): string => {
