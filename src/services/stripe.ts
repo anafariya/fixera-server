@@ -36,9 +36,6 @@ export const STRIPE_CONFIG = {
     .split(",")
     .map((c) => c.trim().toUpperCase()),
 
-  // Escrow/capture settings
-  paymentHoldEnabled: process.env.STRIPE_PAYMENT_HOLD_ENABLED === "true",
-
   // Commission settings
   commissionPercent: safeCommissionPercent,
 
@@ -58,9 +55,6 @@ console.log("Stripe Service initialized:");
 console.log(`   - Environment: ${STRIPE_CONFIG.environment}`);
 console.log(`   - Default Currency: ${STRIPE_CONFIG.defaultCurrency}`);
 console.log(`   - Supported Currencies: ${STRIPE_CONFIG.supportedCurrencies.join(", ")}`);
-console.log(
-  `   - Payment Hold (Escrow): ${STRIPE_CONFIG.paymentHoldEnabled ? "Enabled" : "Disabled"}`
-);
 console.log(`   - Platform Commission: ${STRIPE_CONFIG.commissionPercent}%`);
 console.log(`   - API Key: ${process.env.STRIPE_SECRET_KEY ? "Configured" : "Missing"}`);
 console.log(

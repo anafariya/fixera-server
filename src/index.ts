@@ -1,4 +1,6 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
 import express, { Express, Request, Response} from 'express';
 import cors from 'cors';
@@ -59,7 +61,6 @@ app.use('/api/service-categories', serviceCategoryRouter);
 app.use('/api/professionals', professionalRouter);
 app.use('/api/search', searchRouter);
 app.use('/api/bookings', bookingRouter);
-console.log('[DEBUG] stripeRouter type:', typeof stripeRouter, '| stack:', stripeRouter?.stack?.length);
 app.use('/api/stripe', stripeRouter);
 app.use('/api/professional', professionalPaymentRouter);
 
