@@ -153,7 +153,7 @@ export interface IServiceSelection {
 
 export interface IProject extends Document {
   // Time mode for scheduling
-  timeMode?: "hours" | "days";
+  timeMode?: "hours" | "days" | "mixed";
 
   // Project-level preparation, execution and buffer durations
   preparationDuration?: {
@@ -462,7 +462,7 @@ const ProjectSchema = new Schema<IProject>(
     // Scheduling configuration
     timeMode: {
       type: String,
-      enum: ["hours", "days"],
+      enum: ["hours", "days", "mixed"],
     },
     preparationDuration: {
       value: { type: Number, min: 0 },
