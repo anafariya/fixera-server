@@ -1,41 +1,17 @@
 import { Request, Response, NextFunction } from "express";
-import User from "../../models/user";
 import PlatformSettings from "../../models/platformSettings";
 import connecToDatabase from "../../config/db";
-import jwt from 'jsonwebtoken';
+import { IUser } from "../../models/user";
 
 // Get current platform settings
 export const getPlatformSettings = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = req.cookies?.['auth-token'];
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        msg: "Authentication required"
-      });
-    }
-
-    let decoded: { id: string } | null = null;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
-    } catch (err) {
-      return res.status(401).json({
-        success: false,
-        msg: "Invalid authentication token"
-      });
+    const adminUser = req.admin as IUser | undefined;
+    if (!adminUser || adminUser.role !== 'admin') {
+      return res.status(403).json({ success: false, msg: "Admin access required" });
     }
 
     await connecToDatabase();
-    const adminUser = await User.findById(decoded.id);
-
-    if (!adminUser || adminUser.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        msg: "Admin access required"
-      });
-    }
-
     const config = await PlatformSettings.getCurrentConfig();
 
     return res.status(200).json({
@@ -59,23 +35,9 @@ export const getPlatformSettings = async (req: Request, res: Response, next: Nex
 // Update platform settings
 export const updatePlatformSettings = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = req.cookies?.['auth-token'];
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        msg: "Authentication required"
-      });
-    }
-
-    let decoded: { id: string } | null = null;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
-    } catch (err) {
-      return res.status(401).json({
-        success: false,
-        msg: "Invalid authentication token"
-      });
+    const adminUser = req.admin as IUser | undefined;
+    if (!adminUser || adminUser.role !== 'admin') {
+      return res.status(403).json({ success: false, msg: "Admin access required" });
     }
 
     const { commissionPercent } = req.body;
@@ -95,21 +57,12 @@ export const updatePlatformSettings = async (req: Request, res: Response, next: 
     }
 
     await connecToDatabase();
-    const adminUser = await User.findById(decoded.id);
-
-    if (!adminUser || adminUser.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        msg: "Admin access required"
-      });
-    }
-
     const config = await PlatformSettings.getCurrentConfig();
     config.commissionPercent = commissionPercent;
     config.lastModifiedBy = adminUser._id as any;
     await config.save();
 
-    console.log(`⚙️  Admin ${adminUser.email} updated platform commission to ${commissionPercent}%`);
+    console.log(`⚙️  Admin ${adminUser._id} updated platform commission to ${commissionPercent}%`);
 
     return res.status(200).json({
       success: true,

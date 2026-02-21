@@ -70,7 +70,6 @@ adminRouter.route('/payments').get(getPayments);
 adminRouter.route('/payments/:paymentId/capture').post(capturePayment);
 
 // Platform settings routes
-adminRouter.route('/platform-settings').get(getPlatformSettings);
-adminRouter.route('/platform-settings').put(updatePlatformSettings);
+adminRouter.route('/platform-settings').get(getPlatformSettings).put(updatePlatformSettings);
 
 export default adminRouter;

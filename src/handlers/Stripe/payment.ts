@@ -214,12 +214,19 @@ export const createPaymentIntent = async (
       return { success: false, error: { code: 'INVALID_AMOUNT', message: amountValidation.error! } };
     }
 
-    // Fetch commission rate from DB (seeded from env var on first access)
-    const platformConfig = await PlatformSettings.getCurrentConfig();
-    const commissionPercent = platformConfig.commissionPercent;
+    // Fetch commission rate from DB with env var fallback
+    let commissionPercent: number;
+    try {
+      const platformConfig = await PlatformSettings.getCurrentConfig();
+      commissionPercent = platformConfig.commissionPercent;
+    } catch (configError) {
+      console.warn('Failed to fetch platform config from DB, falling back to env var:', configError);
+      const parsed = Number.parseFloat(process.env.STRIPE_PLATFORM_COMMISSION_PERCENT || '0');
+      commissionPercent = Number.isFinite(parsed) ? parsed : 0;
+    }
 
     const platformCommission = calculatePlatformCommission(totalAmount, commissionPercent);
-    const professionalPayout = calculateProfessionalPayout(totalAmount, commissionPercent);
+    const professionalPayout = totalAmount - platformCommission;
     const stripeFee = calculateStripeFee(totalAmount, currency);
 
     // Create Payment Intent with immediate charge

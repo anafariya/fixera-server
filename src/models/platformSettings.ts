@@ -1,5 +1,7 @@
 import mongoose, { Document, Schema, Model } from 'mongoose';
 
+const SINGLETON_ID = 'platform-settings';
+
 export interface IPlatformSettings extends Document {
   commissionPercent: number;
   lastModifiedBy: mongoose.Types.ObjectId;
@@ -12,6 +14,10 @@ export interface IPlatformSettingsModel extends Model<IPlatformSettings> {
 }
 
 const platformSettingsSchema = new Schema<IPlatformSettings>({
+  _id: {
+    type: String,
+    default: SINGLETON_ID,
+  },
   commissionPercent: {
     type: Number,
     required: true,
@@ -31,38 +37,34 @@ const platformSettingsSchema = new Schema<IPlatformSettings>({
     type: Number,
     default: 1,
   },
-}, {
-  timestamps: true,
 });
 
-// Single-document pattern
-platformSettingsSchema.index({}, { unique: true });
-
-// Pre-save: clamp commission, increment version, update timestamp
+// Pre-save: clamp commission, increment version + timestamp only on updates
 platformSettingsSchema.pre('save', function (next) {
   this.commissionPercent = Math.min(Math.max(this.commissionPercent, 0), 100);
-  this.version += 1;
-  this.lastModified = new Date();
+  if (!this.isNew) {
+    this.version += 1;
+    this.lastModified = new Date();
+  }
   next();
 });
 
-// Static method to get current config or create default seeded from env var
+// Atomic upsert to avoid race conditions on first access
 platformSettingsSchema.statics.getCurrentConfig = async function (): Promise<IPlatformSettings> {
-  let config = await this.findOne();
+  const parsed = Number.parseFloat(process.env.STRIPE_PLATFORM_COMMISSION_PERCENT || '0');
+  const seedValue = Number.isFinite(parsed) ? parsed : 0;
 
-  if (!config) {
-    const parsed = Number.parseFloat(process.env.STRIPE_PLATFORM_COMMISSION_PERCENT || '0');
-    const seedValue = Number.isFinite(parsed) ? parsed : 0;
-
-    const defaultAdmin = await mongoose.model('User').findOne({ role: 'admin' });
-
-    config = await this.create({
-      commissionPercent: seedValue,
-      lastModifiedBy: defaultAdmin?._id,
-      lastModified: new Date(),
-      version: 1,
-    });
-  }
+  const config = await this.findOneAndUpdate(
+    { _id: SINGLETON_ID },
+    {
+      $setOnInsert: {
+        commissionPercent: seedValue,
+        lastModified: new Date(),
+        version: 1,
+      },
+    },
+    { upsert: true, new: true }
+  );
 
   return config;
 };
