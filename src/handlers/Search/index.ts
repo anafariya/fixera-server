@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { Types } from "mongoose";
 import User from "../../models/user";
 import Project from "../../models/project";
+import Booking from "../../models/booking";
 import { buildProjectScheduleProposalsWithData } from "../../utils/scheduleEngine";
 
 export { getPopularServices } from "./getPopularServices";
@@ -151,6 +152,36 @@ async function searchProfessionals(
 
     console.log('[SEARCH] Found', total, 'professionals, returning', professionals.length);
 
+    // Aggregate ratings for returned professionals
+    const professionalIds = professionals.map((p: any) => p._id);
+    const ratingAggregation = professionalIds.length > 0
+      ? await Booking.aggregate([
+          {
+            $match: {
+              professional: { $in: professionalIds },
+              status: "completed",
+              "customerReview.communicationLevel": { $exists: true },
+            },
+          },
+          {
+            $group: {
+              _id: "$professional",
+              avgCommunication: { $avg: "$customerReview.communicationLevel" },
+              avgValueOfDelivery: { $avg: "$customerReview.valueOfDelivery" },
+              avgQualityOfService: { $avg: "$customerReview.qualityOfService" },
+              totalReviews: { $sum: 1 },
+            },
+          },
+        ])
+      : [];
+
+    const ratingMap = new Map(
+      ratingAggregation.map((r: any) => {
+        const avg = (r.avgCommunication + r.avgValueOfDelivery + r.avgQualityOfService) / 3;
+        return [r._id.toString(), { avgRating: Math.round(avg * 10) / 10, totalReviews: r.totalReviews }];
+      })
+    );
+
     // If location filter is present, prioritize exact matches
     const hasAnyAvailability = (availability?: Record<string, any>) =>
       !!availability &&
@@ -160,9 +191,12 @@ async function searchProfessionals(
 
     let results = professionals.map((professional: any) => {
       const { companyAvailability, ...rest } = professional;
+      const ratings = ratingMap.get(professional._id.toString());
       return {
         ...rest,
         availability: hasAnyAvailability(companyAvailability),
+        avgRating: ratings?.avgRating || 0,
+        totalReviews: ratings?.totalReviews || 0,
       };
     });
     if (location && location.trim()) {
@@ -528,6 +562,35 @@ async function searchProjects(
         .lean()
       : [];
 
+    // Aggregate ratings for project professionals
+    const projectProfRatings = professionalIds.length > 0
+      ? await Booking.aggregate([
+          {
+            $match: {
+              professional: { $in: professionalIds.map((id) => new Types.ObjectId(id)) },
+              status: "completed",
+              "customerReview.communicationLevel": { $exists: true },
+            },
+          },
+          {
+            $group: {
+              _id: "$professional",
+              avgCommunication: { $avg: "$customerReview.communicationLevel" },
+              avgValueOfDelivery: { $avg: "$customerReview.valueOfDelivery" },
+              avgQualityOfService: { $avg: "$customerReview.qualityOfService" },
+              totalReviews: { $sum: 1 },
+            },
+          },
+        ])
+      : [];
+
+    const projectRatingMap = new Map(
+      projectProfRatings.map((r: any) => {
+        const avg = (r.avgCommunication + r.avgValueOfDelivery + r.avgQualityOfService) / 3;
+        return [r._id.toString(), { avgRating: Math.round(avg * 10) / 10, totalReviews: r.totalReviews }];
+      })
+    );
+
     // Create a lookup map for quick access
     const professionalMap = new Map(
       professionalsData.map((p: any) => [p._id.toString(), p])
@@ -551,6 +614,7 @@ async function searchProjects(
             return project;
           }
 
+          const profRatings = projectRatingMap.get(profId!) || { avgRating: 0, totalReviews: 0 };
           const professionalSummary = {
             _id: professional._id,
             name: professional.name,
@@ -559,6 +623,8 @@ async function searchProjects(
             hourlyRate: professional.hourlyRate,
             currency: professional.currency,
             profileImage: professional.profileImage,
+            avgRating: profRatings.avgRating,
+            totalReviews: profRatings.totalReviews,
           };
 
           // Get main project availability - use first subproject
