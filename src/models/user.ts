@@ -119,6 +119,13 @@ export interface IUser extends Document {
     totalSpent?: number;
     totalBookings?: number;
     lastLoyaltyUpdate?: Date;
+    // Referral system fields
+    referralCode?: string;
+    referredBy?: Types.ObjectId;
+    referralCredits?: number;
+    referralCreditsExpiry?: Date;
+    totalReferrals?: number;
+    completedReferrals?: number;
     employee?: {
         companyId?: string;
         invitedBy?: string;
@@ -425,6 +432,37 @@ const UserSchema = new Schema({
     lastLoyaltyUpdate: {
         type: Date,
         default: Date.now
+    },
+    // Referral system fields
+    referralCode: {
+        type: String,
+        unique: true,
+        sparse: true,
+        index: true
+    },
+    referredBy: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: false
+    },
+    referralCredits: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    referralCreditsExpiry: {
+        type: Date,
+        required: false
+    },
+    totalReferrals: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    completedReferrals: {
+        type: Number,
+        default: 0,
+        min: 0
     },
     employee: {
         companyId: { type: String, required: false },
