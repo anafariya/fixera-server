@@ -78,8 +78,7 @@ const referralConfigSchema = new Schema<IReferralConfig>({
   },
   lastModifiedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    ref: 'User'
   },
   lastModified: {
     type: Date,
@@ -89,31 +88,29 @@ const referralConfigSchema = new Schema<IReferralConfig>({
   timestamps: true
 });
 
-// Singleton: only one config document
-referralConfigSchema.index({}, { unique: true });
+// Singleton: use findOneAndUpdate with upsert instead of relying on index
 
 referralConfigSchema.statics.getCurrentConfig = async function(): Promise<IReferralConfig> {
-  let config = await this.findOne();
+  const defaults = {
+    isEnabled: false,
+    referrerRewardAmount: 15,
+    referredCustomerDiscountType: 'percentage',
+    referredCustomerDiscountValue: 10,
+    referredCustomerDiscountMaxAmount: 25,
+    referredProfessionalCommissionReduction: 50,
+    referredProfessionalBenefitBookings: 3,
+    referralExpiryDays: 90,
+    creditExpiryMonths: 6,
+    maxReferralsPerUser: 50,
+    minBookingAmountForTrigger: 25,
+    lastModified: new Date()
+  };
 
-  if (!config) {
-    const defaultAdmin = await mongoose.model('User').findOne({ role: 'admin' });
-
-    config = await this.create({
-      isEnabled: false,
-      referrerRewardAmount: 15,
-      referredCustomerDiscountType: 'percentage',
-      referredCustomerDiscountValue: 10,
-      referredCustomerDiscountMaxAmount: 25,
-      referredProfessionalCommissionReduction: 50,
-      referredProfessionalBenefitBookings: 3,
-      referralExpiryDays: 90,
-      creditExpiryMonths: 6,
-      maxReferralsPerUser: 50,
-      minBookingAmountForTrigger: 25,
-      lastModifiedBy: defaultAdmin?._id,
-      lastModified: new Date()
-    });
-  }
+  const config = await this.findOneAndUpdate(
+    {},
+    { $setOnInsert: defaults },
+    { upsert: true, new: true }
+  );
 
   return config;
 };
