@@ -20,60 +20,74 @@ export interface IReferralConfigModel extends Model<IReferralConfig> {
   getCurrentConfig(): Promise<IReferralConfig>;
 }
 
+export const DEFAULT_REFERRAL_CONFIG = {
+  isEnabled: false,
+  referrerRewardAmount: 15,
+  referredCustomerDiscountType: 'percentage' as const,
+  referredCustomerDiscountValue: 10,
+  referredCustomerDiscountMaxAmount: 25,
+  referredProfessionalCommissionReduction: 50,
+  referredProfessionalBenefitBookings: 3,
+  referralExpiryDays: 90,
+  creditExpiryMonths: 6,
+  maxReferralsPerUser: 50,
+  minBookingAmountForTrigger: 25,
+};
+
 const referralConfigSchema = new Schema<IReferralConfig>({
   isEnabled: {
     type: Boolean,
-    default: false
+    default: DEFAULT_REFERRAL_CONFIG.isEnabled
   },
   referrerRewardAmount: {
     type: Number,
-    default: 15,
+    default: DEFAULT_REFERRAL_CONFIG.referrerRewardAmount,
     min: 0
   },
   referredCustomerDiscountType: {
     type: String,
     enum: ['percentage', 'fixed'],
-    default: 'percentage'
+    default: DEFAULT_REFERRAL_CONFIG.referredCustomerDiscountType
   },
   referredCustomerDiscountValue: {
     type: Number,
-    default: 10,
+    default: DEFAULT_REFERRAL_CONFIG.referredCustomerDiscountValue,
     min: 0
   },
   referredCustomerDiscountMaxAmount: {
     type: Number,
-    default: 25,
+    default: DEFAULT_REFERRAL_CONFIG.referredCustomerDiscountMaxAmount,
     min: 0
   },
   referredProfessionalCommissionReduction: {
     type: Number,
-    default: 50,
+    default: DEFAULT_REFERRAL_CONFIG.referredProfessionalCommissionReduction,
     min: 0,
     max: 100
   },
   referredProfessionalBenefitBookings: {
     type: Number,
-    default: 3,
+    default: DEFAULT_REFERRAL_CONFIG.referredProfessionalBenefitBookings,
     min: 0
   },
   referralExpiryDays: {
     type: Number,
-    default: 90,
+    default: DEFAULT_REFERRAL_CONFIG.referralExpiryDays,
     min: 1
   },
   creditExpiryMonths: {
     type: Number,
-    default: 6,
+    default: DEFAULT_REFERRAL_CONFIG.creditExpiryMonths,
     min: 1
   },
   maxReferralsPerUser: {
     type: Number,
-    default: 50,
+    default: DEFAULT_REFERRAL_CONFIG.maxReferralsPerUser,
     min: 1
   },
   minBookingAmountForTrigger: {
     type: Number,
-    default: 25,
+    default: DEFAULT_REFERRAL_CONFIG.minBookingAmountForTrigger,
     min: 0
   },
   lastModifiedBy: {
@@ -91,24 +105,9 @@ const referralConfigSchema = new Schema<IReferralConfig>({
 // Singleton: use findOneAndUpdate with upsert instead of relying on index
 
 referralConfigSchema.statics.getCurrentConfig = async function(): Promise<IReferralConfig> {
-  const defaults = {
-    isEnabled: false,
-    referrerRewardAmount: 15,
-    referredCustomerDiscountType: 'percentage',
-    referredCustomerDiscountValue: 10,
-    referredCustomerDiscountMaxAmount: 25,
-    referredProfessionalCommissionReduction: 50,
-    referredProfessionalBenefitBookings: 3,
-    referralExpiryDays: 90,
-    creditExpiryMonths: 6,
-    maxReferralsPerUser: 50,
-    minBookingAmountForTrigger: 25,
-    lastModified: new Date()
-  };
-
   const config = await this.findOneAndUpdate(
     {},
-    { $setOnInsert: defaults },
+    { $setOnInsert: { ...DEFAULT_REFERRAL_CONFIG, lastModified: new Date() } },
     { upsert: true, new: true }
   );
 

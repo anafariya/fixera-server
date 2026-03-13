@@ -615,6 +615,14 @@ UserSchema.pre("save", function (next) {
         this.set("totalBookings", undefined);
         this.set("lastLoyaltyUpdate", undefined);
 
+        // Referral fields
+        this.set("referralCode", undefined);
+        this.set("referredBy", undefined);
+        this.set("referralCredits", undefined);
+        this.set("referralCreditsExpiry", undefined);
+        this.set("totalReferrals", undefined);
+        this.set("completedReferrals", undefined);
+
         this.set("profileCompletedAt", undefined);
         this.set("professionalOnboardingCompletedAt", undefined);
     }

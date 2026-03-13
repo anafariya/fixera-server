@@ -49,7 +49,7 @@ publicRouter
   .get(schedulingRateLimiter, getProjectScheduleWindow);
 
 // Referral code validation (public endpoint for signup)
-publicRouter.route("/referral/validate/:code").get(validateReferralCodePublic);
+publicRouter.route("/referral/validate/:code").get(schedulingRateLimiter, validateReferralCodePublic);
 
 // Professional profile and reviews (public)
 publicRouter

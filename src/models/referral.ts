@@ -92,6 +92,11 @@ const referralSchema = new Schema<IReferral>({
 referralSchema.index({ referrer: 1, status: 1 });
 referralSchema.index({ referredUser: 1, status: 1 });
 referralSchema.index({ expiresAt: 1, status: 1 });
+// Prevent duplicate referral pairs (excluding cancelled/revoked)
+referralSchema.index(
+  { referrer: 1, referredUser: 1 },
+  { unique: true, partialFilterExpression: { status: { $in: ['pending', 'completed'] } } }
+);
 
 const Referral = mongoose.model<IReferral>('Referral', referralSchema);
 

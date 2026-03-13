@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import User from '../../models/user';
 import Referral from '../../models/referral';
 import ReferralConfig from '../../models/referralConfig';
@@ -126,13 +127,20 @@ export const addLateReferralCode = async (req: Request, res: Response, next: Nex
       return res.status(400).json({ success: false, msg: 'You cannot use your own referral code' });
     }
 
-    // Link the referral
-    user.referredBy = validation.referrer._id;
-    await user.save();
+    // Use a transaction to atomically link referral and create record
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        user.referredBy = validation.referrer._id;
+        await user.save({ session });
 
-    // Create referral record
-    const ipAddress = req.ip || req.headers['x-forwarded-for']?.toString();
-    await createReferral(validation.referrer._id, userId, referralCode, ipAddress);
+        const forwardedFor = req.headers['x-forwarded-for']?.toString();
+        const ipAddress = (forwardedFor ? forwardedFor.split(',')[0].trim() : '') || req.ip;
+        await createReferral(validation.referrer._id, userId, referralCode, ipAddress, session);
+      });
+    } finally {
+      await session.endSession();
+    }
 
     return res.status(200).json({
       success: true,

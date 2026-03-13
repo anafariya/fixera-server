@@ -193,32 +193,44 @@ export const SignUp = async (req: Request, res: Response, next: NextFunction) =>
     // Validate referral code before creating user (if provided)
     let referralValidation: { valid: boolean; referrer?: any; error?: string } | null = null;
     if (referralCode) {
-      referralValidation = await validateReferralCode(referralCode);
-      if (referralValidation.valid && referralValidation.referrer) {
-        userData.referredBy = referralValidation.referrer._id;
+      try {
+        referralValidation = await validateReferralCode(referralCode);
+        if (referralValidation.valid && referralValidation.referrer) {
+          userData.referredBy = referralValidation.referrer._id;
+        }
+      } catch (e) {
+        console.warn('Referral validation failed due to transient error, skipping referral:', e);
+        referralValidation = null;
       }
-      // Don't block signup if referral code is invalid — just ignore it
     }
 
     // Create user with all fields
     const user = await User.create(userData);
 
-    // Generate referral code for the new user
-    try {
-      const newUserRole = user.role;
-      if (newUserRole === 'customer' || newUserRole === 'professional') {
-        const userReferralCode = await generateReferralCode(user.name);
-        user.referralCode = userReferralCode;
-        await user.save();
+    // Generate referral code for the new user with retry on duplicate key
+    if (user.role === 'customer' || user.role === 'professional') {
+      const maxRetries = 3;
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          const userReferralCode = await generateReferralCode(user.name);
+          user.referralCode = userReferralCode;
+          await user.save();
+          break;
+        } catch (e: any) {
+          if (e.code === 11000 && attempt < maxRetries - 1) {
+            continue; // Duplicate key — retry with a new code
+          }
+          console.error('Error generating referral code during signup:', e);
+          break;
+        }
       }
-    } catch (e) {
-      console.error('Error generating referral code during signup:', e);
     }
 
     // Create referral record if valid referral code was provided
     if (referralValidation?.valid && referralValidation.referrer) {
       try {
-        const ipAddress = req.ip || req.headers['x-forwarded-for']?.toString();
+        const forwardedFor = req.headers['x-forwarded-for']?.toString();
+        const ipAddress = (forwardedFor ? forwardedFor.split(',')[0].trim() : '') || req.ip;
         await createReferral(referralValidation.referrer._id, user._id, referralCode, ipAddress);
       } catch (e) {
         console.error('Error creating referral record during signup:', e);

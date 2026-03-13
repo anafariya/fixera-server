@@ -19,6 +19,7 @@ export const generateReferralCode = async (userName: string): Promise<string> =>
   let code: string;
   let attempts = 0;
 
+  let isUnique = false;
   do {
     let randomPart = '';
     for (let i = 0; i < 4; i++) {
@@ -28,8 +29,15 @@ export const generateReferralCode = async (userName: string): Promise<string> =>
     attempts++;
 
     const existing = await User.findOne({ referralCode: code });
-    if (!existing) break;
+    if (!existing) {
+      isUnique = true;
+      break;
+    }
   } while (attempts < 10);
+
+  if (!isUnique) {
+    throw new Error('Unable to generate unique referral code after 10 attempts');
+  }
 
   return code;
 };
@@ -86,14 +94,16 @@ export const createReferral = async (
   referrerId: mongoose.Types.ObjectId,
   referredUserId: mongoose.Types.ObjectId,
   referralCode: string,
-  ipAddress?: string
+  ipAddress?: string,
+  session?: mongoose.ClientSession
 ): Promise<any> => {
   const config = await ReferralConfig.getCurrentConfig();
 
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + config.referralExpiryDays);
 
-  const referral = await Referral.create({
+  const createOpts = session ? { session } : {};
+  const [referral] = await Referral.create([{
     referrer: referrerId,
     referredUser: referredUserId,
     referralCode: referralCode.trim().toUpperCase(),
@@ -102,12 +112,12 @@ export const createReferral = async (
     referredUserDiscountApplied: false,
     expiresAt,
     ipAddress
-  });
+  }], createOpts);
 
   // Update referrer's total referrals count
   await User.findByIdAndUpdate(referrerId, {
     $inc: { totalReferrals: 1 }
-  });
+  }, session ? { session } : {});
 
   return referral;
 };
@@ -126,33 +136,40 @@ export const processReferralCompletion = async (
     return { completed: false, error: 'Referral program disabled' };
   }
 
-  // Find a pending referral for this user
-  const referral = await Referral.findOne({
-    referredUser: userId,
-    status: 'pending',
-    expiresAt: { $gt: new Date() }
-  });
-
-  if (!referral) {
-    return { completed: false, error: 'No pending referral found' };
-  }
-
   // Check minimum booking amount
   if (bookingAmount < config.minBookingAmountForTrigger) {
     return { completed: false, error: 'Booking amount below minimum threshold' };
   }
 
+  // Atomically claim the pending referral to prevent duplicate processing
+  const referral = await Referral.findOneAndUpdate(
+    {
+      referredUser: userId,
+      status: 'pending',
+      expiresAt: { $gt: new Date() }
+    },
+    {
+      $set: {
+        status: 'completed',
+        qualifyingBooking: bookingId,
+        referrerRewardAmount: config.referrerRewardAmount,
+        referrerRewardIssuedAt: new Date()
+      }
+    },
+    { new: true }
+  );
+
+  if (!referral) {
+    return { completed: false, error: 'No pending referral found' };
+  }
+
   // Check if referrer account still exists and is active
   const referrer = await User.findById(referral.referrer);
   if (!referrer) {
-    // Mark referral as completed but skip referrer reward
-    referral.status = 'completed';
-    referral.qualifyingBooking = bookingId;
-    await referral.save();
     return { completed: true };
   }
 
-  // Issue reward to referrer
+  // Issue reward to referrer — use $max for expiry so we never shorten an existing later expiry
   const creditExpiryDate = new Date();
   creditExpiryDate.setMonth(creditExpiryDate.getMonth() + config.creditExpiryMonths);
 
@@ -161,19 +178,12 @@ export const processReferralCompletion = async (
       referralCredits: config.referrerRewardAmount,
       completedReferrals: 1
     },
-    $set: {
+    $max: {
       referralCreditsExpiry: creditExpiryDate
     }
   });
 
-  // Update referral record
-  referral.status = 'completed';
-  referral.qualifyingBooking = bookingId;
-  referral.referrerRewardAmount = config.referrerRewardAmount;
-  referral.referrerRewardIssuedAt = new Date();
-  await referral.save();
-
-  console.log(`Referral completed: ${referrer.name} earned €${config.referrerRewardAmount} for referring user ${userId}`);
+  console.log(`Referral completed: referrer=${referral.referrer} earned €${config.referrerRewardAmount} for referred user=${userId}`);
 
   return { completed: true };
 };

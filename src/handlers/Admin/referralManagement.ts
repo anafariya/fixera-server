@@ -82,7 +82,7 @@ export const getReferralAnalytics = async (req: Request, res: Response, next: Ne
       expiredReferrals,
       revokedReferrals,
       totalCreditsIssued,
-      totalCreditsRedeemed,
+      totalCurrentCredits,
       topReferrers
     ] = await Promise.all([
       Referral.countDocuments(),
@@ -125,9 +125,8 @@ export const getReferralAnalytics = async (req: Request, res: Response, next: Ne
       ])
     ]);
 
-    const signupsFromReferrals = await Referral.countDocuments();
-    const conversionRate = signupsFromReferrals > 0
-      ? ((completedReferrals / signupsFromReferrals) * 100).toFixed(1)
+    const conversionRate = totalReferrals > 0
+      ? ((completedReferrals / totalReferrals) * 100).toFixed(1)
       : '0';
 
     return res.status(200).json({
@@ -141,7 +140,7 @@ export const getReferralAnalytics = async (req: Request, res: Response, next: Ne
         revokedReferrals,
         conversionRate: parseFloat(conversionRate),
         totalCreditsIssued: totalCreditsIssued[0]?.total || 0,
-        currentCreditsBalance: totalCreditsRedeemed[0]?.total || 0,
+        currentCreditsBalance: totalCurrentCredits[0]?.total || 0,
         topReferrers
       }
     });
@@ -157,8 +156,13 @@ export const getReferralAnalytics = async (req: Request, res: Response, next: Ne
  */
 export const getReferralList = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    const { status } = req.query;
+    let page = parseInt(req.query.page as string, 10);
+    let limit = parseInt(req.query.limit as string, 10);
+    if (isNaN(page) || page < 1) page = 1;
+    if (isNaN(limit) || limit < 1) limit = 20;
+    if (limit > 100) limit = 100;
+    const skip = (page - 1) * limit;
 
     const filter: any = {};
     if (status && ['pending', 'completed', 'expired', 'revoked'].includes(status as string)) {
@@ -171,7 +175,7 @@ export const getReferralList = async (req: Request, res: Response, next: NextFun
         .populate('referredUser', 'name email role createdAt')
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(Number(limit)),
+        .limit(limit),
       Referral.countDocuments(filter)
     ]);
 
@@ -180,8 +184,8 @@ export const getReferralList = async (req: Request, res: Response, next: NextFun
       data: {
         referrals,
         total,
-        page: Number(page),
-        totalPages: Math.ceil(total / Number(limit))
+        page,
+        totalPages: Math.ceil(total / limit)
       }
     });
   } catch (error) {
@@ -208,14 +212,29 @@ export const revokeReferral = async (req: Request, res: Response, next: NextFunc
       return res.status(400).json({ success: false, msg: 'Referral is already revoked' });
     }
 
-    // If referral was completed, claw back the credits
+    // If referral was completed, claw back the credits safely
     if (referral.status === 'completed' && referral.referrerRewardAmount > 0) {
-      await User.findByIdAndUpdate(referral.referrer, {
-        $inc: {
-          referralCredits: -referral.referrerRewardAmount,
-          completedReferrals: -1
-        }
-      });
+      const updated = await User.findOneAndUpdate(
+        {
+          _id: referral.referrer,
+          referralCredits: { $gte: referral.referrerRewardAmount }
+        },
+        {
+          $inc: {
+            referralCredits: -referral.referrerRewardAmount,
+            completedReferrals: -1
+          }
+        },
+        { new: true }
+      );
+
+      if (!updated) {
+        // Insufficient credits — set to 0 and still decrement completedReferrals
+        await User.findByIdAndUpdate(referral.referrer, {
+          $set: { referralCredits: 0 },
+          $inc: { completedReferrals: -1 }
+        });
+      }
     }
 
     referral.status = 'revoked';
