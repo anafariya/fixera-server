@@ -23,6 +23,7 @@ import {
 } from '../../utils/payment';
 import { calculateVAT } from '../../utils/vat';
 import PlatformSettings from '../../models/platformSettings';
+import { calculateDiscountBreakdown, calculateDiscountedPayouts } from '../../utils/discountSystem';
 
 const extractParticipantIds = (booking: any, professionalOverride?: any) => {
   const customerId = (booking.customer as any)?._id || booking.customer;
@@ -194,9 +195,30 @@ export const createPaymentIntent = async (
       customer.location?.country
     );
 
-    // Calculate VAT
+    // Calculate discount breakdown
+    const projectId = booking.project
+      ? (typeof booking.project === 'object' ? (booking.project as any)._id : booking.project)
+      : undefined;
+
+    const discount = await calculateDiscountBreakdown(
+      customer._id,
+      professional._id,
+      projectId,
+      booking.quote.amount
+    );
+
+    // Store discount on booking
+    booking.discount = {
+      loyaltyDiscount: discount.loyaltyDiscount,
+      repeatBuyerDiscount: discount.repeatBuyerDiscount,
+      totalDiscount: discount.totalDiscount,
+      originalAmount: discount.originalAmount,
+      discountedAmount: discount.discountedAmount,
+    };
+
+    // Calculate VAT on discounted amount (what customer actually pays)
     const vatCalculation = calculateVAT({
-      amount: booking.quote.amount,
+      amount: discount.discountedAmount,
       customerCountry: customer.location?.country || 'BE',
       customerVATNumber: customer.vatNumber || null,
       professionalCountry: professional.businessInfo?.country || 'BE',
@@ -204,7 +226,7 @@ export const createPaymentIntent = async (
     });
 
     // Calculate amounts
-    const netAmount = booking.quote.amount;
+    const netAmount = discount.discountedAmount;
     const vatAmount = vatCalculation.vatAmount;
     const totalAmount = vatCalculation.total;
 
@@ -225,9 +247,15 @@ export const createPaymentIntent = async (
       commissionPercent = Number.isFinite(parsed) ? parsed : 0;
     }
 
-    const platformCommission = calculatePlatformCommission(totalAmount, commissionPercent);
-    const professionalPayout = totalAmount - platformCommission;
+    // Use hybrid discount absorption model
+    const discountedPayouts = calculateDiscountedPayouts(discount, commissionPercent);
+    const platformCommission = discountedPayouts.platformCommission;
+    const professionalPayout = discountedPayouts.professionalPayout;
     const stripeFee = calculateStripeFee(totalAmount, currency);
+
+    if (discount.totalDiscount > 0) {
+      console.log(`💰 Discount applied for booking ${booking._id}: loyalty=${discount.loyaltyDiscount.amount}, repeat=${discount.repeatBuyerDiscount.amount}, total=${discount.totalDiscount}`);
+    }
 
     // Create Payment Intent with immediate charge
     const paymentIntent = await stripe.paymentIntents.create({

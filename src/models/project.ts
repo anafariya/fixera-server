@@ -214,6 +214,14 @@ export interface IProject extends Document {
   // Step 6: Post-Booking Questions
   postBookingQuestions: IPostBookingQuestion[];
 
+  // Repeat-buyer discount settings
+  repeatBuyerDiscount?: {
+    enabled: boolean;
+    percentage: number; // 1-20%
+    minPreviousBookings: number; // minimum completed bookings to qualify
+    maxDiscountAmount?: number; // optional cap per booking
+  };
+
   // Step 7: Custom Confirmation
   customConfirmationMessage?: string;
 
@@ -574,6 +582,14 @@ const ProjectSchema = new Schema<IProject>(
 
     // Step 6: Post-Booking Questions
     postBookingQuestions: [PostBookingQuestionSchema],
+
+    // Repeat-buyer discount settings
+    repeatBuyerDiscount: {
+      enabled: { type: Boolean, default: false },
+      percentage: { type: Number, min: 1, max: 20, default: 5 },
+      minPreviousBookings: { type: Number, min: 1, default: 1 },
+      maxDiscountAmount: { type: Number, min: 0, default: null },
+    },
 
     // Step 7: Custom Confirmation
     customConfirmationMessage: { type: String, maxlength: 1000 },

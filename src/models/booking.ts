@@ -84,6 +84,25 @@ export interface IBooking extends Document {
     postalCode?: string;
   };
 
+  // Discount information (calculated at quote acceptance)
+  discount?: {
+    loyaltyDiscount: {
+      tierName: string;
+      percentage: number;
+      amount: number; // actual discount amount after cap
+      absorbedBy: 'platform'; // platform always absorbs loyalty discount
+    };
+    repeatBuyerDiscount: {
+      percentage: number;
+      amount: number; // actual discount amount after cap
+      completedBookings: number; // how many bookings qualified them
+      absorbedBy: 'professional'; // professional always absorbs repeat-buyer discount
+    };
+    totalDiscount: number; // sum of both discounts
+    originalAmount: number; // quote amount before discounts
+    discountedAmount: number; // what customer actually pays
+  };
+
   // Payment information
   payment?: {
     // Core payment info
@@ -400,6 +419,25 @@ const BookingSchema = new Schema({
     city: { type: String, maxlength: 100 },
     country: { type: String, maxlength: 100 },
     postalCode: { type: String, maxlength: 20 }
+  },
+
+  // Discount breakdown
+  discount: {
+    loyaltyDiscount: {
+      tierName: { type: String, default: '' },
+      percentage: { type: Number, default: 0 },
+      amount: { type: Number, default: 0 },
+      absorbedBy: { type: String, enum: ['platform'], default: 'platform' },
+    },
+    repeatBuyerDiscount: {
+      percentage: { type: Number, default: 0 },
+      amount: { type: Number, default: 0 },
+      completedBookings: { type: Number, default: 0 },
+      absorbedBy: { type: String, enum: ['professional'], default: 'professional' },
+    },
+    totalDiscount: { type: Number, default: 0 },
+    originalAmount: { type: Number, default: 0 },
+    discountedAmount: { type: Number, default: 0 },
   },
 
   // Payment

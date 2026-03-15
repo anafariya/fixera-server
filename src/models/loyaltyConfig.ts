@@ -11,6 +11,8 @@ export interface ILoyaltyTier extends Document {
   icon: string; // icon name for UI
   isActive: boolean;
   order: number; // display order
+  discountPercentage: number; // auto-discount percentage for this tier (0-100)
+  maxDiscountAmount?: number; // optional cap on discount per booking (in EUR)
 }
 
 export interface ILoyaltyConfig extends Document {
@@ -79,6 +81,17 @@ const loyaltyTierSchema = new Schema<ILoyaltyTier>({
   order: {
     type: Number,
     required: true
+  },
+  discountPercentage: {
+    type: Number,
+    min: 0,
+    max: 100,
+    default: 0
+  },
+  maxDiscountAmount: {
+    type: Number,
+    min: 0,
+    default: null
   }
 });
 
@@ -186,7 +199,9 @@ loyaltyConfigSchema.statics.getCurrentConfig = async function(): Promise<ILoyalt
           color: '#CD7F32',
           icon: 'bronze-medal',
           isActive: true,
-          order: 1
+          order: 1,
+          discountPercentage: 0,
+          maxDiscountAmount: null
         },
         {
           name: 'Silver',
@@ -203,7 +218,9 @@ loyaltyConfigSchema.statics.getCurrentConfig = async function(): Promise<ILoyalt
           color: '#C0C0C0',
           icon: 'silver-medal',
           isActive: true,
-          order: 2
+          order: 2,
+          discountPercentage: 2,
+          maxDiscountAmount: 25
         },
         {
           name: 'Gold',
@@ -221,7 +238,9 @@ loyaltyConfigSchema.statics.getCurrentConfig = async function(): Promise<ILoyalt
           color: '#FFD700',
           icon: 'gold-medal',
           isActive: true,
-          order: 3
+          order: 3,
+          discountPercentage: 5,
+          maxDiscountAmount: 75
         },
         {
           name: 'Platinum',
@@ -239,7 +258,9 @@ loyaltyConfigSchema.statics.getCurrentConfig = async function(): Promise<ILoyalt
           color: '#E5E4E2',
           icon: 'crown',
           isActive: true,
-          order: 4
+          order: 4,
+          discountPercentage: 10,
+          maxDiscountAmount: 150
         }
       ],
       lastModifiedBy: defaultAdmin?._id,
