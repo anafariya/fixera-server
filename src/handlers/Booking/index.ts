@@ -505,7 +505,7 @@ export const createBooking = async (req: Request, res: Response, next: NextFunct
 export const getMyBookings = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user?._id;
-    const { status, page = 1, limit = 20 } = req.query;
+    const { status, page = 1, limit = 20, service, search } = req.query;
 
     const user = await User.findById(userId);
     if (!user) {
@@ -541,9 +541,37 @@ export const getMyBookings = async (req: Request, res: Response, next: NextFunct
       query.status = status;
     }
 
+    // Filter by service type
+    if (service && typeof service === 'string') {
+      query['rfqData.serviceType'] = service;
+    }
+
+    // Text search across customer name, service type, and description
+    if (search && typeof search === 'string') {
+      const regex = new RegExp(search, 'i');
+      query.$and = (query.$and || []).concat([{
+        $or: [
+          { 'rfqData.serviceType': regex },
+          { 'rfqData.description': regex },
+        ]
+      }]);
+    }
+
     const skip = (Number(page) - 1) * Number(limit);
 
-    const [bookings, total] = await Promise.all([
+    // Fetch distinct service types for the filter dropdown (unfiltered by service/search)
+    const roleFilter: any = {};
+    if (user.role === 'customer') {
+      roleFilter.customer = userId;
+    } else {
+      const projectIds = await Project.find({ professionalId: userId }).select("_id");
+      roleFilter.$or = [
+        { professional: userId },
+        { project: { $in: projectIds.map(p => p._id) } },
+      ];
+    }
+
+    const [bookings, total, distinctServices] = await Promise.all([
       Booking.find(query)
         .populate('customer', 'name email phone customerType')
         .populate('professional', 'name email businessInfo')
@@ -551,12 +579,14 @@ export const getMyBookings = async (req: Request, res: Response, next: NextFunct
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit)),
-      Booking.countDocuments(query)
+      Booking.countDocuments(query),
+      Booking.distinct('rfqData.serviceType', roleFilter)
     ]);
 
     return res.status(200).json({
       success: true,
       bookings,
+      distinctServices: distinctServices.filter(Boolean).sort(),
       pagination: {
         total,
         page: Number(page),

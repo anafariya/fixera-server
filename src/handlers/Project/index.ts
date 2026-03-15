@@ -1669,12 +1669,13 @@ export const getProjectsMaster = async (req: Request, res: Response) => {
       ]);
     }
 
-    const [items, total, counts] = await Promise.all([
+    const [items, total, distinctServices, counts] = await Promise.all([
       Project.find(filter)
         .sort({ updatedAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
       Project.countDocuments(filter),
+      Project.distinct("service", { professionalId }),
       // Status counts for header cards – normalize raw DB statuses
       (async () => {
         const professionalObjectId = new mongoose.Types.ObjectId(professionalId);
@@ -1727,6 +1728,7 @@ export const getProjectsMaster = async (req: Request, res: Response) => {
         pages: Math.ceil(total / limit),
       },
       counts,
+      distinctServices: distinctServices.filter(Boolean).sort(),
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch projects" });
