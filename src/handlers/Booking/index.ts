@@ -536,9 +536,13 @@ export const getMyBookings = async (req: Request, res: Response, next: NextFunct
       });
     }
 
-    // Filter by status if provided
+    // Filter by status if provided (supports comma-separated for multiple statuses)
     if (status && typeof status === 'string') {
-      query.status = status;
+      if (status.includes(',')) {
+        query.status = { $in: status.split(',').map(s => s.trim()) };
+      } else {
+        query.status = status;
+      }
     }
 
     // Filter by service type
