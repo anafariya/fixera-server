@@ -7,9 +7,10 @@ import {
   submitPostBookingAnswers,
   submitQuote,
   updateBookingStatus,
-  cancelBooking
+  cancelBooking,
 } from '../../handlers/Booking';
 import { respondToQuoteWithPayment, ensurePaymentIntent, updateBookingStatusWithPayment } from '../../handlers/Booking/payment-integration';
+import { getDiscountPreview } from '../../handlers/Booking/discountPreview';
 import { submitCustomerReview, submitProfessionalReview, replyToCustomerReview } from '../../handlers/Booking/reviews';
 import { protect } from '../../middlewares/auth';
 
@@ -35,6 +36,9 @@ router.post('/:bookingId/post-booking-answers', submitPostBookingAnswers);
 
 // Submit quote - Professional only
 router.post('/:bookingId/quote', submitQuote);
+
+// Discount preview - Customer only (before accepting quote)
+router.get('/:bookingId/discount-preview', getDiscountPreview);
 
 // Respond to quote (accept/reject) - Customer only - WITH PAYMENT INTEGRATION
 router.post('/:bookingId/respond', respondToQuoteWithPayment);

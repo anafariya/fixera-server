@@ -23,6 +23,8 @@ import {
 } from '../../utils/payment';
 import { calculateVAT } from '../../utils/vat';
 import PlatformSettings from '../../models/platformSettings';
+import { calculateAutoDiscount } from '../../utils/discountEngine';
+import { calculateDiscountedPayouts } from '../../utils/discountSystem';
 
 const extractParticipantIds = (booking: any, professionalOverride?: any) => {
   const customerId = (booking.customer as any)?._id || booking.customer;
@@ -194,9 +196,21 @@ export const createPaymentIntent = async (
       customer.location?.country
     );
 
-    // Calculate VAT
+    // Calculate auto-discount
+    const discountBreakdown = await calculateAutoDiscount(
+      customer._id.toString(),
+      professional._id.toString(),
+      booking.project ? (booking.project as any)._id?.toString() || booking.project.toString() : null,
+      booking.quote.amount,
+      customer.totalSpent || 0
+    );
+
+    // Use discounted amount for VAT and payment calculations
+    const discountedQuoteAmount = discountBreakdown.finalAmount;
+
+    // Calculate VAT on the discounted amount
     const vatCalculation = calculateVAT({
-      amount: booking.quote.amount,
+      amount: discountedQuoteAmount,
       customerCountry: customer.location?.country || 'BE',
       customerVATNumber: customer.vatNumber || null,
       professionalCountry: professional.businessInfo?.country || 'BE',
@@ -204,7 +218,7 @@ export const createPaymentIntent = async (
     });
 
     // Calculate amounts
-    const netAmount = booking.quote.amount;
+    const netAmount = discountedQuoteAmount;
     const vatAmount = vatCalculation.vatAmount;
     const totalAmount = vatCalculation.total;
 
@@ -225,9 +239,31 @@ export const createPaymentIntent = async (
       commissionPercent = Number.isFinite(parsed) ? parsed : 0;
     }
 
-    const platformCommission = calculatePlatformCommission(totalAmount, commissionPercent);
-    const professionalPayout = totalAmount - platformCommission;
+    // Use hybrid discount absorption model
+    const discountedPayouts = calculateDiscountedPayouts({
+      loyaltyDiscount: {
+        tierName: discountBreakdown.loyaltyDiscount.tier,
+        percentage: discountBreakdown.loyaltyDiscount.percentage,
+        amount: discountBreakdown.loyaltyDiscount.amount,
+        absorbedBy: 'platform',
+      },
+      repeatBuyerDiscount: {
+        percentage: discountBreakdown.repeatBuyerDiscount.percentage,
+        amount: discountBreakdown.repeatBuyerDiscount.amount,
+        completedBookings: discountBreakdown.repeatBuyerDiscount.previousBookings,
+        absorbedBy: 'professional',
+      },
+      totalDiscount: discountBreakdown.totalDiscount,
+      originalAmount: discountBreakdown.originalAmount,
+      discountedAmount: discountBreakdown.finalAmount,
+    }, commissionPercent);
+    const platformCommission = discountedPayouts.platformCommission;
+    const professionalPayout = discountedPayouts.professionalPayout;
     const stripeFee = calculateStripeFee(totalAmount, currency);
+
+    if (discountBreakdown.totalDiscount > 0) {
+      console.log(`💰 Discount applied for booking ${booking._id}: loyalty=${discountBreakdown.loyaltyDiscount.amount}, repeat=${discountBreakdown.repeatBuyerDiscount.amount}, total=${discountBreakdown.totalDiscount}`);
+    }
 
     // Create Payment Intent with immediate charge
     const paymentIntent = await stripe.paymentIntents.create({
@@ -266,6 +302,17 @@ export const createPaymentIntent = async (
       vatAmount,
       vatRate: vatCalculation.vatRate,
       totalWithVat: totalAmount,
+      ...(discountBreakdown.totalDiscount > 0 && {
+        discount: {
+          loyaltyTier: discountBreakdown.loyaltyDiscount.tier,
+          loyaltyPercentage: discountBreakdown.loyaltyDiscount.percentage,
+          loyaltyAmount: discountBreakdown.loyaltyDiscount.amount,
+          repeatBuyerPercentage: discountBreakdown.repeatBuyerDiscount.percentage,
+          repeatBuyerAmount: discountBreakdown.repeatBuyerDiscount.amount,
+          totalDiscount: discountBreakdown.totalDiscount,
+          originalAmount: discountBreakdown.originalAmount,
+        },
+      }),
     };
     booking.status = 'payment_pending';
     await booking.save();
