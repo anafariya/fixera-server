@@ -598,7 +598,7 @@ async function main() {
   console.log(`  Results: ${passed} passed, ${failed} failed`);
   if (failures.length > 0) {
     console.log('\n  Failures:');
-    failures.forEach(f => console.log(`    ❌ ${f}`));
+    failures.forEach(f => { console.log(`    ❌ ${f}`); });
   }
   console.log('══════════════════════════════════════════════════\n');
 

@@ -50,9 +50,6 @@ router.put('/:bookingId/status', updateBookingStatusWithPayment);
 // Cancel booking
 router.post('/:bookingId/cancel', cancelBooking);
 
-// Discount preview
-router.get('/:bookingId/discount-preview', getDiscountPreview);
-
 // Reviews
 router.post('/:bookingId/customer-review', submitCustomerReview);
 router.post('/:bookingId/professional-review', submitProfessionalReview);

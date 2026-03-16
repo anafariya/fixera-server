@@ -5,8 +5,7 @@
 
 import { Request, Response } from 'express';
 import Booking from '../../models/booking';
-import User from '../../models/user';
-import { calculateDiscountBreakdown } from '../../utils/discountSystem';
+import { calculateAutoDiscount } from '../../utils/discountEngine';
 
 /**
  * GET /api/bookings/:bookingId/discount-preview
@@ -25,6 +24,7 @@ export const getDiscountPreview = async (req: Request, res: Response) => {
     }
 
     const booking = await Booking.findById(bookingId)
+      .populate('customer', 'totalSpent')
       .populate('project', 'repeatBuyerDiscount professionalId');
 
     if (!booking) {
@@ -35,7 +35,7 @@ export const getDiscountPreview = async (req: Request, res: Response) => {
     }
 
     // Only the customer can see discount preview
-    if (booking.customer.toString() !== userId) {
+    if (booking.customer._id?.toString() !== userId && booking.customer.toString() !== userId) {
       return res.status(403).json({
         success: false,
         error: { code: 'UNAUTHORIZED', message: 'Not authorized' }
@@ -65,14 +65,17 @@ export const getDiscountPreview = async (req: Request, res: Response) => {
     }
 
     const projectId = booking.project
-      ? (typeof booking.project === 'object' ? (booking.project as any)._id : booking.project)
-      : undefined;
+      ? (booking.project as any)._id?.toString() || String(booking.project)
+      : null;
 
-    const discount = await calculateDiscountBreakdown(
-      booking.customer,
+    const customer = booking.customer as any;
+
+    const discount = await calculateAutoDiscount(
+      userId,
       professionalId,
       projectId,
-      booking.quote.amount
+      booking.quote.amount,
+      customer.totalSpent || 0
     );
 
     return res.json({

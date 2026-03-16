@@ -62,8 +62,8 @@ async function calculateLoyaltyDiscount(
 
   let discountAmount = roundToTwo((quoteAmount * tier.discountPercentage) / 100);
 
-  // Apply cap if configured
-  if (tier.maxDiscountAmount && discountAmount > tier.maxDiscountAmount) {
+  // Apply cap if configured (explicit null/undefined check so 0 is honored)
+  if (tier.maxDiscountAmount !== undefined && tier.maxDiscountAmount !== null && discountAmount > tier.maxDiscountAmount) {
     discountAmount = tier.maxDiscountAmount;
   }
 
@@ -92,10 +92,16 @@ async function calculateRepeatBuyerDiscount(
     return { percentage: 0, amount: 0, completedBookings: 0 };
   }
 
-  // Count completed bookings this customer has with this professional
+  // Validate that the professional matches the project owner
+  const projectOwnerId = project.professionalId?.toString();
+  if (projectOwnerId && projectOwnerId !== professionalId.toString()) {
+    return { percentage: 0, amount: 0, completedBookings: 0 };
+  }
+
+  // Count completed bookings using the project's owner
   const completedBookings = await Booking.countDocuments({
     customer: customerId,
-    professional: professionalId,
+    professional: projectOwnerId || professionalId,
     status: 'completed',
   });
 
@@ -106,8 +112,10 @@ async function calculateRepeatBuyerDiscount(
   const percentage = project.repeatBuyerDiscount.percentage;
   let discountAmount = roundToTwo((quoteAmount * percentage) / 100);
 
-  // Apply cap if configured
-  if (project.repeatBuyerDiscount.maxDiscountAmount && discountAmount > project.repeatBuyerDiscount.maxDiscountAmount) {
+  // Apply cap if configured (explicit null/undefined check so 0 is honored)
+  if (project.repeatBuyerDiscount.maxDiscountAmount !== undefined &&
+      project.repeatBuyerDiscount.maxDiscountAmount !== null &&
+      discountAmount > project.repeatBuyerDiscount.maxDiscountAmount) {
     discountAmount = project.repeatBuyerDiscount.maxDiscountAmount;
   }
 
@@ -132,28 +140,39 @@ export async function calculateDiscountBreakdown(
     calculateRepeatBuyerDiscount(customerId, professionalId, projectId, quoteAmount),
   ]);
 
-  const totalDiscount = roundToTwo(loyaltyResult.amount + repeatResult.amount);
-  let discountedAmount = roundToTwo(quoteAmount - totalDiscount);
+  const rawTotal = roundToTwo(loyaltyResult.amount + repeatResult.amount);
+  let discountedAmount = roundToTwo(quoteAmount - rawTotal);
 
   // Ensure minimum payment threshold
   if (discountedAmount < MINIMUM_PAYMENT_AMOUNT) {
     discountedAmount = MINIMUM_PAYMENT_AMOUNT;
   }
 
+  // Reconcile component amounts if clamped
+  let finalTotalDiscount = roundToTwo(quoteAmount - discountedAmount);
+  let loyaltyAmount = loyaltyResult.amount;
+  let repeatAmount = repeatResult.amount;
+
+  if (finalTotalDiscount < rawTotal && rawTotal > 0) {
+    const loyaltyShare = loyaltyResult.amount / rawTotal;
+    loyaltyAmount = roundToTwo(finalTotalDiscount * loyaltyShare);
+    repeatAmount = roundToTwo(finalTotalDiscount - loyaltyAmount);
+  }
+
   return {
     loyaltyDiscount: {
       tierName: loyaltyResult.tierName,
       percentage: loyaltyResult.percentage,
-      amount: loyaltyResult.amount,
+      amount: loyaltyAmount,
       absorbedBy: 'platform',
     },
     repeatBuyerDiscount: {
       percentage: repeatResult.percentage,
-      amount: repeatResult.amount,
+      amount: repeatAmount,
       completedBookings: repeatResult.completedBookings,
       absorbedBy: 'professional',
     },
-    totalDiscount: roundToTwo(quoteAmount - discountedAmount),
+    totalDiscount: finalTotalDiscount,
     originalAmount: quoteAmount,
     discountedAmount,
   };
