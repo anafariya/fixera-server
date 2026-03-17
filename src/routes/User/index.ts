@@ -113,10 +113,10 @@ userRouter.route("/google-maps-config").get(getGoogleMapsConfig)
 userRouter.route("/commission-rate").get(async (req, res) => {
   try {
     const PlatformSettings = (await import("../../models/platformSettings")).default;
-    await (await import("../../config/db")).default();
     const config = await PlatformSettings.getCurrentConfig();
     return res.status(200).json({ success: true, data: { commissionPercent: config.commissionPercent } });
-  } catch {
+  } catch (error) {
+    console.error("Failed to retrieve commission rate:", error);
     return res.status(500).json({ success: false, msg: "Failed to retrieve commission rate" });
   }
 });
