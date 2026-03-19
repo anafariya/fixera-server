@@ -24,7 +24,7 @@ import {
 import { calculateVAT } from '../../utils/vat';
 import PlatformSettings from '../../models/platformSettings';
 import { calculateAutoDiscount } from '../../utils/discountEngine';
-import { calculateDiscountedPayouts } from '../../utils/discountSystem';
+import { calculateDiscountedPayouts } from '../../utils/discountEngine';
 
 const extractParticipantIds = (booking: any, professionalOverride?: any) => {
   const customerId = (booking.customer as any)?._id || booking.customer;

@@ -3,7 +3,7 @@ import User from "../../models/user";
 import LoyaltyConfig from "../../models/loyaltyConfig";
 import connecToDatabase from "../../config/db";
 import jwt from 'jsonwebtoken';
-import { calculateLoyaltyStatusV2 } from "../../utils/loyaltySystemV2";
+import { calculateLoyaltyStatus } from "../../utils/loyaltySystem";
 import mongoose from 'mongoose';
 
 // Get current loyalty configuration
@@ -245,7 +245,7 @@ export const recalculateCustomerTiers = async (req: Request, res: Response, next
         const loyaltyPoints = customer.loyaltyPoints || 0;
         
         // Calculate new tier based on spending
-        const loyaltyStatus = await calculateLoyaltyStatusV2(totalSpent, loyaltyPoints);
+        const loyaltyStatus = await calculateLoyaltyStatus(totalSpent, loyaltyPoints);
         
         const oldLevel = customer.loyaltyLevel;
         customer.loyaltyLevel = loyaltyStatus.level as 'Bronze' | 'Silver' | 'Gold' | 'Platinum';
@@ -430,7 +430,7 @@ export const testLoyaltySystem = async (req: Request, res: Response, next: NextF
     }
 
     // Import the simulate function
-    const { simulateBookingPoints } = await import('../../utils/loyaltySystemV2');
+    const { simulateBookingPoints } = await import('../../utils/loyaltySystem');
     const result = await simulateBookingPoints(customerId, bookingAmount);
 
     console.log(`🧪 Admin: Tested loyalty system for customer ${customer.email} with booking $${bookingAmount} by ${adminUser.email}`);
