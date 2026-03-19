@@ -240,23 +240,7 @@ export const createPaymentIntent = async (
     }
 
     // Use hybrid discount absorption model
-    const discountedPayouts = calculateDiscountedPayouts({
-      loyaltyDiscount: {
-        tierName: discountBreakdown.loyaltyDiscount.tier,
-        percentage: discountBreakdown.loyaltyDiscount.percentage,
-        amount: discountBreakdown.loyaltyDiscount.amount,
-        absorbedBy: 'platform',
-      },
-      repeatBuyerDiscount: {
-        percentage: discountBreakdown.repeatBuyerDiscount.percentage,
-        amount: discountBreakdown.repeatBuyerDiscount.amount,
-        completedBookings: discountBreakdown.repeatBuyerDiscount.previousBookings,
-        absorbedBy: 'professional',
-      },
-      totalDiscount: discountBreakdown.totalDiscount,
-      originalAmount: discountBreakdown.originalAmount,
-      discountedAmount: discountBreakdown.finalAmount,
-    }, commissionPercent);
+    const discountedPayouts = calculateDiscountedPayouts(discountBreakdown, commissionPercent);
     const platformCommission = discountedPayouts.platformCommission;
     const professionalPayout = discountedPayouts.professionalPayout;
     const stripeFee = calculateStripeFee(totalAmount, currency);

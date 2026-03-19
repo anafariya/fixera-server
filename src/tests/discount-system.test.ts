@@ -19,7 +19,7 @@ import User from '../models/user';
 import LoyaltyConfig from '../models/loyaltyConfig';
 import Project from '../models/project';
 import Booking from '../models/booking';
-import { calculateAutoDiscount, calculateDiscountedPayouts, IDiscountBreakdown } from '../utils/discountEngine';
+import { calculateAutoDiscount, calculateDiscountedPayouts, DiscountBreakdown } from '../utils/discountEngine';
 
 // ─── Test helpers ─────────────────────────────────────────────────
 
@@ -196,12 +196,12 @@ async function testPurePayoutCalculation() {
   console.log('\n═══ Test 1: calculateDiscountedPayouts (pure math) ═══');
 
   // Scenario: €500 quote, 5% loyalty (€25), 10% repeat (€50), 15% commission
-  const discount: IDiscountBreakdown = {
-    loyaltyDiscount: { tierName: 'Gold', percentage: 5, amount: 25, absorbedBy: 'platform' },
-    repeatBuyerDiscount: { percentage: 10, amount: 50, completedBookings: 3, absorbedBy: 'professional' },
+  const discount: DiscountBreakdown = {
+    loyaltyDiscount: { tier: 'Gold', percentage: 5, amount: 25, capped: false },
+    repeatBuyerDiscount: { percentage: 10, amount: 50, previousBookings: 3, capped: false },
     totalDiscount: 75,
     originalAmount: 500,
-    discountedAmount: 425,
+    finalAmount: 425,
   };
 
   const result = calculateDiscountedPayouts(discount, 15);
@@ -226,12 +226,12 @@ async function testPurePayoutCalculation() {
 async function testPurePayoutNoDiscount() {
   console.log('\n═══ Test 2: calculateDiscountedPayouts (no discount) ═══');
 
-  const discount: IDiscountBreakdown = {
-    loyaltyDiscount: { tierName: 'Bronze', percentage: 0, amount: 0, absorbedBy: 'platform' },
-    repeatBuyerDiscount: { percentage: 0, amount: 0, completedBookings: 0, absorbedBy: 'professional' },
+  const discount: DiscountBreakdown = {
+    loyaltyDiscount: { tier: 'Bronze', percentage: 0, amount: 0, capped: false },
+    repeatBuyerDiscount: { percentage: 0, amount: 0, previousBookings: 0, capped: false },
     totalDiscount: 0,
     originalAmount: 1000,
-    discountedAmount: 1000,
+    finalAmount: 1000,
   };
 
   const result = calculateDiscountedPayouts(discount, 10);
@@ -244,12 +244,12 @@ async function testPurePayoutNoDiscount() {
 async function testPurePayoutOnlyLoyalty() {
   console.log('\n═══ Test 3: calculateDiscountedPayouts (loyalty only) ═══');
 
-  const discount: IDiscountBreakdown = {
-    loyaltyDiscount: { tierName: 'Platinum', percentage: 10, amount: 100, absorbedBy: 'platform' },
-    repeatBuyerDiscount: { percentage: 0, amount: 0, completedBookings: 0, absorbedBy: 'professional' },
+  const discount: DiscountBreakdown = {
+    loyaltyDiscount: { tier: 'Platinum', percentage: 10, amount: 100, capped: false },
+    repeatBuyerDiscount: { percentage: 0, amount: 0, previousBookings: 0, capped: false },
     totalDiscount: 100,
     originalAmount: 1000,
-    discountedAmount: 900,
+    finalAmount: 900,
   };
 
   const result = calculateDiscountedPayouts(discount, 10);
@@ -264,12 +264,12 @@ async function testPurePayoutOnlyLoyalty() {
 async function testPurePayoutOnlyRepeat() {
   console.log('\n═══ Test 4: calculateDiscountedPayouts (repeat only) ═══');
 
-  const discount: IDiscountBreakdown = {
-    loyaltyDiscount: { tierName: 'Bronze', percentage: 0, amount: 0, absorbedBy: 'platform' },
-    repeatBuyerDiscount: { percentage: 5, amount: 50, completedBookings: 3, absorbedBy: 'professional' },
+  const discount: DiscountBreakdown = {
+    loyaltyDiscount: { tier: 'Bronze', percentage: 0, amount: 0, capped: false },
+    repeatBuyerDiscount: { percentage: 5, amount: 50, previousBookings: 3, capped: false },
     totalDiscount: 50,
     originalAmount: 1000,
-    discountedAmount: 950,
+    finalAmount: 950,
   };
 
   const result = calculateDiscountedPayouts(discount, 10);

@@ -50,7 +50,7 @@ export const getLoyaltyStatus = async (req: Request, res: Response, next: NextFu
       });
     }
 
-    // Calculate current loyalty status using V2 system (based on spending)
+    // Calculate current loyalty status based on spending, points, and bookings
     const loyaltyStatus = await calculateLoyaltyStatus(user.totalSpent || 0, user.loyaltyPoints || 0, user.totalBookings || 0);
     const benefits = await getUserLoyaltyBenefits((user._id as mongoose.Types.ObjectId).toString());
 
@@ -138,7 +138,7 @@ export const addSpending = async (req: Request, res: Response, next: NextFunctio
 
     const oldLevel = user.loyaltyLevel || 'Bronze';
 
-    // Update loyalty using V2 system
+    // Update user loyalty
     const result = await updateUserLoyalty((user._id as mongoose.Types.ObjectId).toString(), amount, bookingCompleted);
 
     if (!result.user) {

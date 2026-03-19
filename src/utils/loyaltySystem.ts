@@ -1,6 +1,17 @@
 import User, { IUser } from "../models/user";
 import LoyaltyConfig, { ILoyaltyConfig, ILoyaltyTier } from "../models/loyaltyConfig";
 
+type LoyaltyLevel = 'Bronze' | 'Silver' | 'Gold' | 'Platinum';
+const VALID_LOYALTY_LEVELS: Set<string> = new Set(['Bronze', 'Silver', 'Gold', 'Platinum']);
+
+function toValidLoyaltyLevel(level: string): LoyaltyLevel {
+  if (VALID_LOYALTY_LEVELS.has(level)) {
+    return level as LoyaltyLevel;
+  }
+  console.warn(`Loyalty: Unknown tier "${level}" — defaulting to Bronze`);
+  return 'Bronze';
+}
+
 export interface LoyaltyCalculation {
   points: number;
   level: string;
@@ -248,7 +259,7 @@ export const updateUserLoyalty = async (
 
     // Update user
     user.loyaltyPoints = newTotalPoints;
-    user.loyaltyLevel = newLoyaltyStatus.level as 'Bronze' | 'Silver' | 'Gold' | 'Platinum';
+    user.loyaltyLevel = toValidLoyaltyLevel(newLoyaltyStatus.level);
     user.totalSpent = newTotalSpent;
     user.totalBookings = newTotalBookings;
     user.lastLoyaltyUpdate = new Date();
@@ -302,8 +313,41 @@ export const getUserLoyaltyBenefits = async (userId: string): Promise<string[]> 
   }
 };
 
-// Simulate booking points (for testing)
+// Preview what a booking would earn without writing to DB
+export const previewBookingPoints = async (userId: string, bookingAmount: number): Promise<any> => {
+  const user = await User.findById(userId);
+  if (!user || user.role !== 'customer') {
+    return { success: false, error: 'User not found or not a customer' };
+  }
+
+  const currentTotalSpent = user.totalSpent || 0;
+  const pointsEarned = await calculateLoyaltyPoints(bookingAmount, currentTotalSpent, true);
+
+  const newTotalSpent = currentTotalSpent + bookingAmount;
+  const newTotalPoints = (user.loyaltyPoints || 0) + pointsEarned.total;
+  const projectedStatus = await calculateLoyaltyStatus(newTotalSpent, newTotalPoints, (user.totalBookings || 0) + 1);
+
+  return {
+    success: true,
+    data: {
+      pointsEarned,
+      wouldLevelUp: (user.loyaltyLevel || 'Bronze') !== projectedStatus.level,
+      currentLevel: user.loyaltyLevel || 'Bronze',
+      projectedLevel: projectedStatus.level,
+      currentPoints: user.loyaltyPoints || 0,
+      projectedPoints: newTotalPoints,
+      currentSpent: currentTotalSpent,
+      projectedSpent: newTotalSpent,
+    }
+  };
+};
+
+// Apply booking points — mutates user in DB (admin testing only)
 export const simulateBookingPoints = async (userId: string, bookingAmount: number): Promise<any> => {
+  if (process.env.NODE_ENV === 'production') {
+    return { success: false, error: 'simulateBookingPoints is disabled in production' };
+  }
+
   const result = await updateUserLoyalty(userId, bookingAmount, true);
   return {
     success: true,

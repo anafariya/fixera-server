@@ -36,30 +36,6 @@ const hasNumericCap = (value: unknown): value is number =>
 const MINIMUM_PAYMENT_AMOUNT = 0.50; // Stripe minimum in EUR
 
 /**
- * Calculate auto-discount for a booking based on loyalty tier and repeat-buyer config
- */
-/**
- * Payout breakdown interface for hybrid absorption model
- */
-export interface IDiscountBreakdown {
-  loyaltyDiscount: {
-    tierName: string;
-    percentage: number;
-    amount: number;
-    absorbedBy: 'platform';
-  };
-  repeatBuyerDiscount: {
-    percentage: number;
-    amount: number;
-    completedBookings: number;
-    absorbedBy: 'professional';
-  };
-  totalDiscount: number;
-  originalAmount: number;
-  discountedAmount: number;
-}
-
-/**
  * Calculate how the discount affects commission and professional payout.
  *
  * Hybrid model:
@@ -71,14 +47,14 @@ export interface IDiscountBreakdown {
  * Professional payout: calculated on (originalAmount - repeatBuyerDiscount)
  */
 export function calculateDiscountedPayouts(
-  discount: IDiscountBreakdown,
+  discount: DiscountBreakdown,
   commissionPercent: number
 ): {
   customerPays: number;
   platformCommission: number;
   professionalPayout: number;
 } {
-  const { originalAmount, discountedAmount, loyaltyDiscount, repeatBuyerDiscount } = discount;
+  const { originalAmount, finalAmount, loyaltyDiscount, repeatBuyerDiscount } = discount;
 
   // The amount the professional's world sees (before platform commission)
   // = original amount minus the repeat-buyer discount they offered
@@ -95,7 +71,7 @@ export function calculateDiscountedPayouts(
   const platformCommission = roundToTwo(platformCommissionOnBase - loyaltyDiscount.amount);
 
   return {
-    customerPays: discountedAmount,
+    customerPays: finalAmount,
     platformCommission: Math.max(0, platformCommission),
     professionalPayout: Math.max(0, professionalPayout),
   };
