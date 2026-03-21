@@ -12,7 +12,7 @@ import mongoose from 'mongoose';
 // Get current loyalty configuration
 export const getLoyaltyConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user?._id;
+    const userId = (req as any).admin?._id;
     if (!userId) return res.status(401).json({ success: false, msg: "Authentication required" });
 
     const config = await LoyaltyConfig.getCurrentConfig();
@@ -38,7 +38,7 @@ export const getLoyaltyConfig = async (req: Request, res: Response, next: NextFu
 // Update loyalty configuration
 export const updateLoyaltyConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user?._id;
+    const userId = (req as any).admin?._id;
     if (!userId) return res.status(401).json({ success: false, msg: "Authentication required" });
 
     const { globalSettings, tiers } = req.body;
@@ -113,7 +113,7 @@ export const updateLoyaltyConfig = async (req: Request, res: Response, next: Nex
 // Recalculate all customer tiers
 export const recalculateCustomerTiers = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user?._id;
+    const userId = (req as any).admin?._id;
     if (!userId) return res.status(401).json({ success: false, msg: "Authentication required" });
 
     const customers = await User.find({ role: 'customer' });
@@ -151,7 +151,7 @@ export const recalculateCustomerTiers = async (req: Request, res: Response, next
 // Get loyalty analytics
 export const getLoyaltyAnalytics = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user?._id;
+    const userId = (req as any).admin?._id;
     if (!userId) return res.status(401).json({ success: false, msg: "Authentication required" });
 
     const tierStats = await User.aggregate([
@@ -224,7 +224,7 @@ export const getPointsConfig = async (req: Request, res: Response, next: NextFun
 // Update points configuration
 export const updatePointsConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user?._id;
+    const userId = (req as any).admin?._id;
     const { isEnabled, conversionRate, expiryMonths, minRedemptionPoints } = req.body;
 
     const config = await PointsConfig.getCurrentConfig();
@@ -252,7 +252,7 @@ export const updatePointsConfig = async (req: Request, res: Response, next: Next
 // Admin: adjust user points (add or remove)
 export const adjustUserPoints = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const adminId = (req as any).user?._id;
+    const adminId = (req as any).admin?._id;
     const { userId, amount, reason } = req.body;
 
     if (!userId || !amount || !reason) {
@@ -349,7 +349,7 @@ export const getProfessionalLevelConfig = async (req: Request, res: Response, ne
 // Update professional level configuration
 export const updateProfessionalLevelConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user?._id;
+    const userId = (req as any).admin?._id;
     const { levels } = req.body;
 
     if (!levels || !Array.isArray(levels) || levels.length === 0) {

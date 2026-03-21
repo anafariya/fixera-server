@@ -23,7 +23,7 @@ export const getReferralConfig = async (req: Request, res: Response, next: NextF
  */
 export const updateReferralConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user?._id;
+    const userId = (req as any).admin?._id;
     const {
       isEnabled,
       referrerRewardAmount,
@@ -201,7 +201,7 @@ export const getReferralList = async (req: Request, res: Response, next: NextFun
  */
 export const revokeReferral = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user?._id;
+    const userId = (req as any).admin?._id;
     const { referralId } = req.params;
     const { reason } = req.body;
 
