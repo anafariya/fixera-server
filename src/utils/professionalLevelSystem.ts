@@ -36,9 +36,11 @@ export interface ProfessionalLevelInfo {
  * Gather performance metrics for a professional from their bookings.
  */
 export const getProfessionalMetrics = async (
-  professionalId: mongoose.Types.ObjectId | string
+  professionalId: mongoose.Types.ObjectId | string,
+  opts?: { session?: mongoose.ClientSession }
 ): Promise<ProfessionalMetrics> => {
-  const user = await User.findById(professionalId).select('createdAt');
+  const findOpts = opts?.session ? { session: opts.session } : {};
+  const user = await User.findById(professionalId, null, findOpts).select('createdAt');
   if (!user) {
     throw new Error('Professional not found');
   }
@@ -101,11 +103,13 @@ export const getProfessionalMetrics = async (
   const responseRate = totalRfqs > 0 ? Math.round((respondedRfqs / totalRfqs) * 100) : 100;
 
   // Points boost: count booking credits purchased, using the ratio stored per transaction
-  const boostTxns = await PointTransaction.find({
+  const boostQuery = PointTransaction.find({
     userId: new mongoose.Types.ObjectId(professionalId.toString()),
     source: 'boost',
     type: 'spend'
   }).select('amount metadata');
+  if (opts?.session) boostQuery.session(opts.session);
+  const boostTxns = await boostQuery;
 
   let totalBoostedBookings = 0;
   for (const tx of boostTxns) {
@@ -127,10 +131,11 @@ export const getProfessionalMetrics = async (
  * Calculate the professional's current level based on their metrics.
  */
 export const calculateProfessionalLevel = async (
-  professionalId: mongoose.Types.ObjectId | string
+  professionalId: mongoose.Types.ObjectId | string,
+  opts?: { session?: mongoose.ClientSession }
 ): Promise<ProfessionalLevelInfo> => {
   const config = await ProfessionalLevelConfig.getCurrentConfig();
-  const metrics = await getProfessionalMetrics(professionalId);
+  const metrics = await getProfessionalMetrics(professionalId, opts);
   const activeLevels = config.levels.filter(l => l.isActive).sort((a, b) => a.order - b.order);
 
   if (activeLevels.length === 0) {
@@ -231,7 +236,7 @@ export const updateProfessionalLevel = async (
   }
 
   const oldLevel = user.professionalLevel || 'New';
-  const levelInfo = await calculateProfessionalLevel(professionalId);
+  const levelInfo = await calculateProfessionalLevel(professionalId, opts);
 
   if (oldLevel !== levelInfo.currentLevel) {
     user.professionalLevel = levelInfo.currentLevel;

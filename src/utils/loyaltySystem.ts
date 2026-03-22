@@ -20,9 +20,12 @@ export interface LoyaltyCalculation {
   progress?: number; // percentage to next tier
 }
 
-// Get current tier based on total spending amount
-export const getCurrentTier = (tiers: ILoyaltyTier[], totalSpent: number): ILoyaltyTier => {
-  const orderedTiers = tiers.slice().sort((a, b) => a.minSpendingAmount - b.minSpendingAmount);
+// Sort tiers by minSpendingAmount ascending
+const sortTiers = (tiers: ILoyaltyTier[]): ILoyaltyTier[] =>
+  tiers.slice().sort((a, b) => a.minSpendingAmount - b.minSpendingAmount);
+
+// Get current tier based on total spending amount (internal, expects pre-sorted tiers)
+const getCurrentTierFromSorted = (orderedTiers: ILoyaltyTier[], totalSpent: number): ILoyaltyTier => {
   for (let i = orderedTiers.length - 1; i >= 0; i--) {
     if (totalSpent >= orderedTiers[i].minSpendingAmount) {
       return orderedTiers[i];
@@ -31,14 +34,25 @@ export const getCurrentTier = (tiers: ILoyaltyTier[], totalSpent: number): ILoya
   return orderedTiers[0];
 };
 
+// Get current tier based on total spending amount
+export const getCurrentTier = (tiers: ILoyaltyTier[], totalSpent: number): ILoyaltyTier => {
+  if (!tiers || tiers.length === 0) {
+    throw new Error('No loyalty tiers available');
+  }
+  return getCurrentTierFromSorted(sortTiers(tiers), totalSpent);
+};
+
 // Get next tier information
 export const getNextTierInfo = (tiers: ILoyaltyTier[], totalSpent: number): {
   nextTier?: ILoyaltyTier;
   amountNeeded?: number;
   progress?: number;
 } => {
-  const orderedTiers = tiers.slice().sort((a, b) => a.minSpendingAmount - b.minSpendingAmount);
-  const currentTier = getCurrentTier(orderedTiers, totalSpent);
+  if (!tiers || tiers.length === 0) {
+    return {};
+  }
+  const orderedTiers = sortTiers(tiers);
+  const currentTier = getCurrentTierFromSorted(orderedTiers, totalSpent);
   const currentIndex = orderedTiers.findIndex(tier => tier.name === currentTier.name);
   const nextTier = currentIndex < orderedTiers.length - 1 ? orderedTiers[currentIndex + 1] : null;
 

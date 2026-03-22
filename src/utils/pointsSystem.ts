@@ -34,17 +34,15 @@ export const addPoints = async (
   if (opts?.session) updateOpts.session = opts.session;
 
   const prevUser = await User.findOneAndUpdate(
-    { _id: userId },
+    { _id: userId, role: { $ne: 'employee' } },
     { $inc: { points: amount }, $max: { pointsExpiry: expiresAt } },
     updateOpts
   );
   if (!prevUser) {
+    const exists = await User.findById(userId).select('_id role');
+    if (!exists) throw new Error('User not found');
+    if (exists.role === 'employee') throw new Error('Employees cannot earn or spend points');
     throw new Error('User not found');
-  }
-  if (prevUser.role === 'employee') {
-    // Rollback: undo the increment
-    await User.findByIdAndUpdate(userId, { $inc: { points: -amount } }, opts?.session ? { session: opts.session } : {});
-    throw new Error('Employees cannot earn or spend points');
   }
 
   const balanceBefore = prevUser.points || 0;

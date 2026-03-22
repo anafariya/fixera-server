@@ -213,6 +213,9 @@ export const getLoyaltyAnalytics = async (req: Request, res: Response, next: Nex
 // Get points configuration
 export const getPointsConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const userId = (req as any).admin?._id;
+    if (!userId) return res.status(401).json({ success: false, msg: "Authentication required" });
+
     const config = await PointsConfig.getCurrentConfig();
     return res.status(200).json({ success: true, data: { config } });
   } catch (error: any) {
@@ -225,6 +228,8 @@ export const getPointsConfig = async (req: Request, res: Response, next: NextFun
 export const updatePointsConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).admin?._id;
+    if (!userId) return res.status(401).json({ success: false, msg: "Authentication required" });
+
     const { isEnabled, conversionRate, expiryMonths, minRedemptionPoints } = req.body;
 
     // Validate fields
@@ -273,6 +278,8 @@ export const updatePointsConfig = async (req: Request, res: Response, next: Next
 export const adjustUserPoints = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const adminId = (req as any).admin?._id;
+    if (!adminId) return res.status(401).json({ success: false, msg: "Authentication required" });
+
     const { userId, amount, reason } = req.body;
 
     if (!userId || !amount || !reason) {
@@ -309,6 +316,9 @@ export const adjustUserPoints = async (req: Request, res: Response, next: NextFu
 // Points analytics
 export const getPointsAnalytics = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const userId = (req as any).admin?._id;
+    if (!userId) return res.status(401).json({ success: false, msg: "Authentication required" });
+
     // Total points in circulation
     const pointsStats = await User.aggregate([
       { $match: { points: { $gt: 0 } } },
@@ -358,6 +368,9 @@ export const getPointsAnalytics = async (req: Request, res: Response, next: Next
 // Get professional level configuration
 export const getProfessionalLevelConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const userId = (req as any).admin?._id;
+    if (!userId) return res.status(401).json({ success: false, msg: "Authentication required" });
+
     const config = await ProfessionalLevelConfig.getCurrentConfig();
     return res.status(200).json({ success: true, data: { config } });
   } catch (error: any) {
@@ -370,6 +383,8 @@ export const getProfessionalLevelConfig = async (req: Request, res: Response, ne
 export const updateProfessionalLevelConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).admin?._id;
+    if (!userId) return res.status(401).json({ success: false, msg: "Authentication required" });
+
     const { levels } = req.body;
 
     if (!levels || !Array.isArray(levels) || levels.length === 0) {
