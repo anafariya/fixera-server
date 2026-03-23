@@ -239,11 +239,15 @@ export interface IBooking extends Document {
     valueOfDelivery: number; // 1-5
     qualityOfService: number; // 1-5
     comment?: string;
+    images?: string[]; // Up to 2 S3 image URLs
     reviewedAt: Date;
     reply?: {
       comment: string;
       repliedAt: Date;
     };
+    isHidden?: boolean;
+    hiddenBy?: Types.ObjectId;
+    hiddenAt?: Date;
   };
   professionalReview?: {
     rating: number; // 1-5
@@ -703,6 +707,9 @@ const BookingSchema = new Schema({
       type: String,
       maxlength: 1000
     },
+    images: [{
+      type: String
+    }],
     reviewedAt: {
       type: Date,
       default: Date.now
@@ -715,6 +722,17 @@ const BookingSchema = new Schema({
       repliedAt: {
         type: Date
       }
+    },
+    isHidden: {
+      type: Boolean,
+      default: false
+    },
+    hiddenBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    hiddenAt: {
+      type: Date
     }
   },
   professionalReview: {
