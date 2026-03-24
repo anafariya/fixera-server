@@ -53,6 +53,33 @@ const chatReadLimiter = rateLimit({
   message: { success: false, msg: "Too many requests, please try again later" },
 });
 
+const chatToggleLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userKeyGenerator,
+  message: { success: false, msg: "Too many requests, please try again later" },
+});
+
+const chatReportLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userKeyGenerator,
+  message: { success: false, msg: "Too many reports, please try again later" },
+});
+
+const chatSearchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userKeyGenerator,
+  message: { success: false, msg: "Too many searches, please try again later" },
+});
+
 router.use(protect);
 
 router.post("/conversations", createOrGetConversation);
@@ -63,11 +90,11 @@ router.post("/conversations/:conversationId/messages", chatSendLimiter, sendMess
 router.patch("/conversations/:conversationId/read", markConversationRead);
 router.post("/upload-image", chatUploadLimiter, upload.single("image"), uploadChatImage);
 router.post("/upload-file", chatUploadLimiter, upload.single("file"), uploadChatFile);
-router.patch("/conversations/:conversationId/star", toggleStar);
-router.patch("/conversations/:conversationId/archive", toggleArchive);
-router.post("/conversations/:conversationId/label", addLabel);
-router.delete("/conversations/:conversationId/label/:label", removeLabel);
-router.post("/messages/:messageId/report", reportMessage);
-router.get("/conversations/:conversationId/messages/search", searchMessages);
+router.patch("/conversations/:conversationId/star", chatToggleLimiter, toggleStar);
+router.patch("/conversations/:conversationId/archive", chatToggleLimiter, toggleArchive);
+router.post("/conversations/:conversationId/label", chatToggleLimiter, addLabel);
+router.delete("/conversations/:conversationId/label/:label", chatToggleLimiter, removeLabel);
+router.post("/messages/:messageId/report", chatReportLimiter, reportMessage);
+router.get("/conversations/:conversationId/messages/search", chatSearchLimiter, searchMessages);
 
 export default router;

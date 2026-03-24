@@ -101,6 +101,9 @@ ConversationSchema.index(
   { customerId: 1, professionalId: 1 },
   { unique: true }
 );
+ConversationSchema.index({ starredBy: 1 });
+ConversationSchema.index({ archivedBy: 1 });
+ConversationSchema.index({ "labels.userId": 1, "labels.label": 1 });
 
 const Conversation = model<IConversation>("Conversation", ConversationSchema);
 

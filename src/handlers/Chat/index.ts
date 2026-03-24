@@ -421,9 +421,18 @@ export const sendMessage = async (req: Request, res: Response) => {
     senderRole = userRole === "professional" ? "professional" : "customer";
   }
 
-  const replyTo = typeof req.body.replyTo === "string" && mongoose.Types.ObjectId.isValid(req.body.replyTo)
+  const replyToRaw = typeof req.body.replyTo === "string" && mongoose.Types.ObjectId.isValid(req.body.replyTo)
     ? req.body.replyTo
     : undefined;
+
+  let validatedReplyTo: string | undefined;
+  if (replyToRaw) {
+    const replyMsg = await ChatMessage.findById(replyToRaw).select("conversationId").lean();
+    if (!replyMsg || replyMsg.conversationId.toString() !== conversationId) {
+      return res.status(400).json({ success: false, msg: "Invalid replyTo message" });
+    }
+    validatedReplyTo = replyToRaw;
+  }
 
   const message = await ChatMessage.create({
     conversationId: toObjectId(conversationId),
@@ -433,7 +442,7 @@ export const sendMessage = async (req: Request, res: Response) => {
     images,
     attachments,
     readBy: [{ userId: toObjectId(userId), readAt: new Date() }],
-    ...(replyTo ? { replyTo: toObjectId(replyTo) } : {}),
+    ...(validatedReplyTo ? { replyTo: toObjectId(validatedReplyTo) } : {}),
   });
 
   const preview = buildMessagePreview(text, images, attachments);
@@ -682,32 +691,37 @@ export const getConversationInfo = async (req: Request, res: Response) => {
   const avgCustomerRating = hasCustomerRatings ? (avgCom + avgVal + avgQual) / 3 : 0;
 
   // Compute average response time (professional reply time to customer messages)
+  // Uses a cursor to avoid materializing all messages in memory.
   let avgResponseTimeMs = 0;
   try {
-    const responseTimeAgg = await ChatMessage.aggregate([
-      { $match: { conversationId: toObjectId(conversationId) } },
-      { $sort: { _id: 1 } },
-      {
-        $group: {
-          _id: "$conversationId",
-          messages: {
-            $push: { senderRole: "$senderRole", createdAt: "$createdAt" },
-          },
-        },
-      },
-    ]);
-    if (responseTimeAgg.length > 0) {
-      const msgs = responseTimeAgg[0].messages as { senderRole: string; createdAt: Date }[];
-      const responseTimes: number[] = [];
-      for (let i = 1; i < msgs.length; i++) {
-        if (msgs[i].senderRole === "professional" && msgs[i - 1].senderRole === "customer") {
-          const diff = new Date(msgs[i].createdAt).getTime() - new Date(msgs[i - 1].createdAt).getTime();
-          if (diff > 0) responseTimes.push(diff);
+    const cursor = ChatMessage.find(
+      { conversationId: toObjectId(conversationId) },
+      { senderRole: 1, createdAt: 1 }
+    )
+      .sort({ _id: 1 })
+      .cursor();
+
+    let prevRole: string | null = null;
+    let prevTime: number = 0;
+    let totalResponseMs = 0;
+    let responseCount = 0;
+
+    for await (const doc of cursor) {
+      const role = doc.senderRole;
+      const time = new Date(doc.createdAt).getTime();
+      if (role === "professional" && prevRole === "customer") {
+        const diff = time - prevTime;
+        if (diff > 0) {
+          totalResponseMs += diff;
+          responseCount++;
         }
       }
-      if (responseTimes.length > 0) {
-        avgResponseTimeMs = responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length;
-      }
+      prevRole = role;
+      prevTime = time;
+    }
+
+    if (responseCount > 0) {
+      avgResponseTimeMs = totalResponseMs / responseCount;
     }
   } catch {
     // non-critical
@@ -835,14 +849,35 @@ export const addLabel = async (req: Request, res: Response) => {
 
   const userOid = toObjectId(userId);
   const trimmed = label.trim();
+  const newLabelObj: Record<string, unknown> = { userId: userOid, label: trimmed };
+  if (color) newLabelObj.color = color;
 
-  // Remove existing label with same name for this user, then add
-  await Conversation.findByIdAndUpdate(conversationId, {
-    $pull: { labels: { userId: userOid, label: trimmed } },
-  });
-  await Conversation.findByIdAndUpdate(conversationId, {
-    $push: { labels: { userId: userOid, label: trimmed, color: color || undefined } },
-  });
+  // Atomic: filter out existing label with same name for this user, then append the new one
+  await Conversation.findByIdAndUpdate(conversationId, [
+    {
+      $set: {
+        labels: {
+          $concatArrays: [
+            {
+              $filter: {
+                input: { $ifNull: ["$labels", []] },
+                as: "l",
+                cond: {
+                  $not: {
+                    $and: [
+                      { $eq: ["$$l.userId", userOid] },
+                      { $eq: ["$$l.label", trimmed] },
+                    ],
+                  },
+                },
+              },
+            },
+            [newLabelObj],
+          ],
+        },
+      },
+    },
+  ]);
 
   return res.status(200).json({ success: true, msg: "Label added" });
 };
@@ -934,10 +969,9 @@ export const searchMessages = async (req: Request, res: Response) => {
     return res.status(403).json({ success: false, msg: "Not allowed" });
   }
 
-  const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const results = await ChatMessage.find({
     conversationId: toObjectId(conversationId),
-    text: { $regex: escapedQ, $options: "i" },
+    $text: { $search: q },
   })
     .populate("senderId", "name businessInfo profileImage")
     .sort({ _id: -1 })
