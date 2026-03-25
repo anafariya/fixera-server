@@ -36,6 +36,7 @@ export interface IChatMessage extends Document {
   attachments: IChatAttachment[];
   readBy: IChatMessageReadReceipt[];
   reviewMeta?: IReviewNotificationMeta;
+  replyTo?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -117,6 +118,11 @@ const ChatMessageSchema = new Schema<IChatMessage>(
         },
       },
     ],
+    replyTo: {
+      type: Schema.Types.ObjectId,
+      ref: "ChatMessage",
+      required: false,
+    },
   },
   { timestamps: true }
 );
@@ -133,6 +139,7 @@ ChatMessageSchema.path("text").validate(function (value: string | undefined) {
 }, "Message must include text or at least one image/attachment");
 
 ChatMessageSchema.index({ conversationId: 1, _id: -1 });
+ChatMessageSchema.index({ text: "text" });
 
 const ChatMessage = model<IChatMessage>("ChatMessage", ChatMessageSchema);
 

@@ -1,11 +1,20 @@
 import { Schema, model, Document, Types } from "mongoose";
 
+export interface IConversationLabel {
+  userId: Types.ObjectId;
+  label: string;
+  color?: string;
+}
+
 export interface IConversation extends Document {
   _id: Types.ObjectId;
   customerId: Types.ObjectId;
   professionalId: Types.ObjectId;
   initiatedBy: Types.ObjectId;
   status: "active" | "archived";
+  starredBy: Types.ObjectId[];
+  archivedBy: Types.ObjectId[];
+  labels: IConversationLabel[];
   lastMessageAt?: Date;
   lastMessagePreview?: string;
   lastMessageSenderId?: Types.ObjectId;
@@ -64,6 +73,24 @@ const ConversationSchema = new Schema<IConversation>(
       min: 0,
       required: true,
     },
+    starredBy: {
+      type: [{ type: Schema.Types.ObjectId, ref: "User" }],
+      default: [],
+    },
+    archivedBy: {
+      type: [{ type: Schema.Types.ObjectId, ref: "User" }],
+      default: [],
+    },
+    labels: {
+      type: [
+        {
+          userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+          label: { type: String, required: true, maxlength: 30 },
+          color: { type: String, maxlength: 20 },
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );
@@ -74,6 +101,9 @@ ConversationSchema.index(
   { customerId: 1, professionalId: 1 },
   { unique: true }
 );
+ConversationSchema.index({ starredBy: 1 });
+ConversationSchema.index({ archivedBy: 1 });
+ConversationSchema.index({ "labels.userId": 1, "labels.label": 1 });
 
 const Conversation = model<IConversation>("Conversation", ConversationSchema);
 
