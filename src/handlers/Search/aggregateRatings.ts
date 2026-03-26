@@ -16,7 +16,9 @@ export async function aggregateRatings(
       $match: {
         [groupField]: { $in: objectIds },
         status: "completed",
-        "customerReview.communicationLevel": { $exists: true },
+        "customerReview.communicationLevel": { $exists: true, $ne: null },
+        "customerReview.valueOfDelivery": { $exists: true, $ne: null },
+        "customerReview.qualityOfService": { $exists: true, $ne: null },
         "customerReview.isHidden": { $ne: true },
       },
     },
