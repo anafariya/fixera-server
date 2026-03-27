@@ -682,14 +682,16 @@ const BookingSchema = new Schema({
         type: Number,
         min: 0,
         required: function (this: any) {
-          return this?.warrantyCoverage?.duration?.unit != null;
+          const unit = this?.unit ?? this?.warrantyCoverage?.duration?.unit;
+          return unit != null;
         },
       },
       unit: {
         type: String,
         enum: ['months', 'years'],
         required: function (this: any) {
-          return this?.warrantyCoverage?.duration?.value != null;
+          const value = this?.value ?? this?.warrantyCoverage?.duration?.value;
+          return value != null;
         },
       },
     },
