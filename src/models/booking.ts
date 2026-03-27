@@ -678,22 +678,8 @@ const BookingSchema = new Schema({
   actualEndDate: { type: Date },
   warrantyCoverage: {
     duration: {
-      value: {
-        type: Number,
-        min: 0,
-        required: function (this: any) {
-          const unit = this?.unit ?? this?.warrantyCoverage?.duration?.unit;
-          return unit != null;
-        },
-      },
-      unit: {
-        type: String,
-        enum: ['months', 'years'],
-        required: function (this: any) {
-          const value = this?.value ?? this?.warrantyCoverage?.duration?.value;
-          return value != null;
-        },
-      },
+      value: { type: Number, min: 0 },
+      unit: { type: String, enum: ['months', 'years'] },
     },
     startsAt: { type: Date },
     endsAt: { type: Date },
@@ -916,6 +902,20 @@ const parseTimeToMinutes = (time: string): number => {
 };
 
 // Pre-save middleware to generate booking number and validate scheduling fields
+BookingSchema.pre('validate', function(next) {
+  const dur = this.warrantyCoverage?.duration;
+  if (dur) {
+    const hasValue = dur.value != null;
+    const hasUnit = dur.unit != null;
+    if (hasValue !== hasUnit) {
+      return next(new Error(
+        'warrantyCoverage.duration requires both value and unit when either is set'
+      ));
+    }
+  }
+  next();
+});
+
 BookingSchema.pre('save', async function(next) {
   // Cross-field validation for scheduling times
   if (this.scheduledStartTime && this.scheduledEndTime) {
