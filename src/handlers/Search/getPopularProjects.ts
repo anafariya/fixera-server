@@ -11,8 +11,8 @@ import { aggregateProjectRatings } from "./aggregateRatings";
 export const getPopularProjects = async (req: Request, res: Response) => {
   try {
     const { limit = "10" } = req.query;
-    const parsed = parseInt(limit as string, 10) || 10;
-    const limitNum = Math.min(Math.max(parsed, 1), 20);
+    const parsed = parseInt(limit as string, 10);
+    const limitNum = Math.min(Math.max(Number.isNaN(parsed) ? 10 : parsed, 1), 20);
 
     // Single aggregation: filter published, lookup completed booking counts,
     // sort by booking count desc + recency, project only needed fields, limit.
