@@ -49,6 +49,9 @@ export interface IQuotationMilestone {
   customDueDate?: Date;
   order: number;
   status: 'pending' | 'invoiced' | 'paid' | 'overdue';
+}
+
+export interface IBookingMilestone extends IQuotationMilestone {
   workStatus?: 'pending' | 'in_progress' | 'completed';
   stripePaymentIntentId?: string;
   stripeClientSecret?: string;
@@ -127,7 +130,7 @@ export interface IBooking extends Document {
   rfqRemindersSent: number;
   lastReminderSentAt?: Date;
   customerRejectionReason?: string;
-  milestonePayments?: IQuotationMilestone[];
+  milestonePayments?: IBookingMilestone[];
   selectedSubprojectIndex?: number;
 
   // Booking location (customer's location from their profile)
@@ -496,12 +499,6 @@ const BookingSchema = new Schema({
       customDueDate: { type: Date },
       order: { type: Number, required: true },
       status: { type: String, enum: ['pending', 'invoiced', 'paid', 'overdue'], default: 'pending' },
-      workStatus: { type: String, enum: ['pending', 'in_progress', 'completed'], default: 'pending' },
-      stripePaymentIntentId: { type: String },
-      stripeClientSecret: { type: String },
-      startedAt: { type: Date },
-      completedAt: { type: Date },
-      paidAt: { type: Date }
     }],
     preparationDuration: {
       value: { type: Number, required: true, min: 0 },

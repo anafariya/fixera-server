@@ -6,7 +6,7 @@
 
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
-import Booking, { IQuoteVersion, IQuotationMilestone } from '../../models/booking';
+import Booking, { IQuoteVersion } from '../../models/booking';
 import User from '../../models/user';
 import Conversation from '../../models/conversation';
 import { addWorkingDays } from '../../utils/workingDays';
