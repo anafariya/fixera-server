@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import {
   uploadProjectFile,
-  validateImageFile,
+  validateImageFileBuffer,
   validateVideoFile,
   validateCertificationFile
 } from '../../utils/s3Upload';
@@ -24,7 +24,7 @@ export const uploadProjectImage = async (req: Request, res: Response) => {
     }
 
     // Validate image
-    const validation = validateImageFile(file);
+    const validation = await validateImageFileBuffer(file);
     if (!validation.valid) {
       return res.status(400).json({
         success: false,

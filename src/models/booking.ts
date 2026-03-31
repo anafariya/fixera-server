@@ -1,4 +1,5 @@
 import mongoose, { Schema, model, Document, Types } from "mongoose";
+import { getNextSequence } from "../utils/counterSequence";
 
 export type BookingStatus =
   | 'rfq'           // Request for Quote - Initial state when customer requests
@@ -977,40 +978,14 @@ BookingSchema.pre('save', async function(next) {
 
   if (this.isNew && !this.bookingNumber) {
     const year = new Date().getFullYear();
-    const db = mongoose.connection.db;
-    if (!db) {
-      throw new Error('Database unavailable: cannot generate bookingNumber');
-    }
-    const countersCollection = db.collection<{ _id: string; seq: number }>('counters');
-    const counter = await countersCollection.findOneAndUpdate(
-      { _id: `bookingNumber-${year}` },
-      { $inc: { seq: 1 } },
-      { upsert: true, returnDocument: 'after' }
-    );
-    if (!counter?.seq) {
-      throw new Error(`Failed to generate bookingNumber: counter upsert returned ${JSON.stringify(counter)}`);
-    }
-    this.bookingNumber = `BK-${year}-${String(counter.seq).padStart(6, '0')}`;
+    this.bookingNumber = await getNextSequence(`bookingNumber-${year}`, `BK-${year}`);
   }
 
   // Generate quotation number if quoteVersions exist and no quotationNumber yet
   // Uses atomic counter to avoid race conditions with concurrent saves
   if (!this.quotationNumber && this.quoteVersions && this.quoteVersions.length > 0) {
     const year = new Date().getFullYear();
-    const db = mongoose.connection.db;
-    if (!db) {
-      throw new Error('Database unavailable: cannot generate quotationNumber');
-    }
-    const countersCollection = db.collection<{ _id: string; seq: number }>('counters');
-    const counter = await countersCollection.findOneAndUpdate(
-      { _id: `quotationNumber-${year}` },
-      { $inc: { seq: 1 } },
-      { upsert: true, returnDocument: 'after' }
-    );
-    if (!counter?.seq) {
-      throw new Error(`Failed to generate quotationNumber: counter upsert returned ${JSON.stringify(counter)}`);
-    }
-    this.quotationNumber = `QT-${year}-${String(counter.seq).padStart(6, '0')}`;
+    this.quotationNumber = await getNextSequence(`quotationNumber-${year}`, `QT-${year}`);
   }
 
   // Initialize status history if empty

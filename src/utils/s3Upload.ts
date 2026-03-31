@@ -25,17 +25,11 @@ const storage = multer.memoryStorage();
 // File filter for ID proofs (images and PDFs only)
 const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const allowedMimeTypes = [
-    // Images
-    'image/jpeg',
-    'image/jpg',
-    'image/png',
-    'image/webp',
-    // Documents
+    ...ALLOWED_IMAGE_MIMES,
     'application/pdf',
-    // Videos
     'video/mp4',
-    'video/quicktime', // .mov
-    'video/x-msvideo', // .avi
+    'video/quicktime',
+    'video/x-msvideo',
   ];
 
   if (allowedMimeTypes.includes(file.mimetype)) {
@@ -172,9 +166,9 @@ export const validateFile = (file: Express.Multer.File): { valid: boolean; error
   }
 
   // Check file type
-  const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+  const allowedMimeTypes = [...ALLOWED_IMAGE_MIMES, 'application/pdf'];
   if (!allowedMimeTypes.includes(file.mimetype)) {
-    return { valid: false, error: 'Invalid file type. Only JPEG, PNG, and PDF files are allowed' };
+    return { valid: false, error: 'Invalid file type. Only JPEG, PNG, WebP, and PDF files are allowed' };
   }
 
   // Check filename
@@ -195,23 +189,39 @@ export const validateImageFile = (file: Express.Multer.File): { valid: boolean; 
   return { valid: true };
 };
 
-export const validateImageFileBuffer = async (
-  file: Express.Multer.File
-): Promise<{ valid: boolean; error?: string; detectedMime?: string }> => {
-  const sizeCheck = validateImageFile(file);
-  if (!sizeCheck.valid) return sizeCheck;
+export const ensureFileSizeUnder = (size: number, maxBytes: number): { valid: boolean; error?: string } => {
+  if (size > maxBytes) {
+    return { valid: false, error: `File must be less than ${Math.round(maxBytes / (1024 * 1024))}MB` };
+  }
+  return { valid: true };
+};
 
-  if (!file.buffer || file.buffer.length === 0) {
+export const validateImageBuffer = async (
+  buffer: Buffer
+): Promise<{ valid: boolean; error?: string; detectedMime?: string }> => {
+  if (!buffer || buffer.length === 0) {
     return { valid: false, error: 'Empty file buffer' };
   }
 
-  const detected = await fileTypeFromBuffer(file.buffer);
+  const detected = await fileTypeFromBuffer(buffer);
   if (!detected || !ALLOWED_IMAGE_MIMES.includes(detected.mime)) {
     return { valid: false, error: 'File content does not match an allowed image type (JPEG, PNG, WebP)' };
   }
 
-  file.mimetype = detected.mime;
   return { valid: true, detectedMime: detected.mime };
+};
+
+export const validateImageFileBuffer = async (
+  file: Express.Multer.File
+): Promise<{ valid: boolean; error?: string; detectedMime?: string }> => {
+  const sizeCheck = ensureFileSizeUnder(file.size, 5 * 1024 * 1024);
+  if (!sizeCheck.valid) return sizeCheck;
+
+  const bufferCheck = await validateImageBuffer(file.buffer);
+  if (!bufferCheck.valid) return bufferCheck;
+
+  file.mimetype = bufferCheck.detectedMime!;
+  return { valid: true, detectedMime: bufferCheck.detectedMime };
 };
 
 // Validate video file

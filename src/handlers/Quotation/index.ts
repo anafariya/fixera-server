@@ -6,10 +6,11 @@
 
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
-import Booking, { IQuoteVersion, IQuotationMilestone } from '../../models/booking';
+import Booking, { IQuoteVersion, IQuotationMilestone, IBookingMilestone } from '../../models/booking';
 import User from '../../models/user';
 import Conversation from '../../models/conversation';
 import { addWorkingDays } from '../../utils/workingDays';
+import { getNextSequence } from '../../utils/counterSequence';
 import { createPaymentIntent } from '../Stripe/payment';
 import {
   sendRfqAcceptedEmail,
@@ -23,20 +24,7 @@ import {
 
 const getNextQuotationNumber = async (): Promise<string> => {
   const year = new Date().getFullYear();
-  const db = mongoose.connection.db;
-  if (!db) {
-    throw new Error('Database unavailable: cannot generate quotationNumber');
-  }
-  const countersCollection = db.collection<{ _id: string; seq: number }>('counters');
-  const counter = await countersCollection.findOneAndUpdate(
-    { _id: `quotationNumber-${year}` },
-    { $inc: { seq: 1 } },
-    { upsert: true, returnDocument: 'after' }
-  );
-  if (!counter?.seq) {
-    throw new Error(`Failed to generate quotationNumber: counter upsert returned ${JSON.stringify(counter)}`);
-  }
-  return `QT-${year}-${String(counter.seq).padStart(6, '0')}`;
+  return getNextSequence(`quotationNumber-${year}`, `QT-${year}`);
 };
 
 /**
@@ -758,8 +746,8 @@ export const updateMilestoneWorkStatus = async (req: Request, res: Response) => 
       return res.status(400).json({ success: false, error: { code: 'INVALID_MILESTONE', message: 'Milestone not found' } });
     }
 
-    const milestone = booking.milestonePayments[milestoneIndex] as any;
-    const previousMilestones = booking.milestonePayments.slice(0, milestoneIndex) as any[];
+    const milestone = booking.milestonePayments[milestoneIndex];
+    const previousMilestones = booking.milestonePayments.slice(0, milestoneIndex);
     const now = new Date();
 
     if (milestone.workStatus === 'completed') {
@@ -842,7 +830,7 @@ export const getMilestonePaymentStatus = async (req: Request, res: Response) => 
     const totalAmount = milestones.reduce((sum, m) => sum + m.amount, 0);
     const paidAmount = milestones.filter(m => m.status === 'paid').reduce((sum, m) => sum + m.amount, 0);
     const workCompletedAmount = milestones
-      .filter((m: any) => m.workStatus === 'completed')
+      .filter((m: IBookingMilestone) => m.workStatus === 'completed')
       .reduce((sum, m) => sum + m.amount, 0);
 
     return res.json({
