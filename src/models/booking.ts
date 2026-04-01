@@ -1,4 +1,5 @@
 import mongoose, { Schema, model, Document, Types } from "mongoose";
+import { getNextSequence } from "../utils/counterSequence";
 
 export type BookingStatus =
   | 'rfq'           // Request for Quote - Initial state when customer requests
@@ -49,8 +50,14 @@ export interface IQuotationMilestone {
   customDueDate?: Date;
   order: number;
   status: 'pending' | 'invoiced' | 'paid' | 'overdue';
+}
+
+export interface IBookingMilestone extends IQuotationMilestone {
+  workStatus?: 'pending' | 'in_progress' | 'completed';
   stripePaymentIntentId?: string;
   stripeClientSecret?: string;
+  startedAt?: Date;
+  completedAt?: Date;
   paidAt?: Date;
 }
 
@@ -124,7 +131,7 @@ export interface IBooking extends Document {
   rfqRemindersSent: number;
   lastReminderSentAt?: Date;
   customerRejectionReason?: string;
-  milestonePayments?: IQuotationMilestone[];
+  milestonePayments?: IBookingMilestone[];
   selectedSubprojectIndex?: number;
 
   // Booking location (customer's location from their profile)
@@ -493,9 +500,6 @@ const BookingSchema = new Schema({
       customDueDate: { type: Date },
       order: { type: Number, required: true },
       status: { type: String, enum: ['pending', 'invoiced', 'paid', 'overdue'], default: 'pending' },
-      stripePaymentIntentId: { type: String },
-      stripeClientSecret: { type: String },
-      paidAt: { type: Date }
     }],
     preparationDuration: {
       value: { type: Number, required: true, min: 0 },
@@ -535,8 +539,11 @@ const BookingSchema = new Schema({
     customDueDate: { type: Date },
     order: { type: Number, required: true },
     status: { type: String, enum: ['pending', 'invoiced', 'paid', 'overdue'], default: 'pending' },
+    workStatus: { type: String, enum: ['pending', 'in_progress', 'completed'], default: 'pending' },
     stripePaymentIntentId: { type: String },
     stripeClientSecret: { type: String },
+    startedAt: { type: Date },
+    completedAt: { type: Date },
     paidAt: { type: Date }
   }],
   selectedSubprojectIndex: {
@@ -971,25 +978,14 @@ BookingSchema.pre('save', async function(next) {
 
   if (this.isNew && !this.bookingNumber) {
     const year = new Date().getFullYear();
-    const count = await model('Booking').countDocuments();
-    this.bookingNumber = `BK-${year}-${String(count + 1).padStart(6, '0')}`;
+    this.bookingNumber = await getNextSequence(`bookingNumber-${year}`, `BK-${year}`);
   }
 
   // Generate quotation number if quoteVersions exist and no quotationNumber yet
   // Uses atomic counter to avoid race conditions with concurrent saves
   if (!this.quotationNumber && this.quoteVersions && this.quoteVersions.length > 0) {
     const year = new Date().getFullYear();
-    const db = mongoose.connection.db;
-    if (db) {
-      const countersCollection = db.collection<{ _id: string; seq: number }>('counters');
-      const counter = await countersCollection.findOneAndUpdate(
-        { _id: `quotationNumber-${year}` },
-        { $inc: { seq: 1 } },
-        { upsert: true, returnDocument: 'after' }
-      );
-      const seq = counter?.seq ?? 1;
-      this.quotationNumber = `QT-${year}-${String(seq).padStart(6, '0')}`;
-    }
+    this.quotationNumber = await getNextSequence(`quotationNumber-${year}`, `QT-${year}`);
   }
 
   // Initialize status history if empty

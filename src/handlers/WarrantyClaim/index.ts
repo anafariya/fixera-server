@@ -20,7 +20,7 @@ import {
   parseS3KeyFromUrl,
   uploadToS3,
   validateFile,
-  validateImageFile,
+  validateImageFileBuffer,
   validateVideoFile,
 } from "../../utils/s3Upload";
 import { SYSTEM_USER_ID } from "../../constants/system";
@@ -273,14 +273,12 @@ export const uploadWarrantyEvidence = async (req: Request, res: Response) => {
 
     try {
       for (const file of files) {
-        const validator = file.mimetype.startsWith("image/")
-          ? validateImageFile
+        const validation = file.mimetype.startsWith("image/")
+          ? await validateImageFileBuffer(file)
           : file.mimetype.startsWith("video/")
-          ? validateVideoFile
-          : validateFile;
-        const validation = validator(file);
+          ? validateVideoFile(file)
+          : validateFile(file);
         if (!validation.valid) {
-          // Clean up any files already uploaded before returning error
           await Promise.all(
             uploaded.map((f) =>
               deleteFromS3(f.key).catch(() => null)
@@ -357,12 +355,11 @@ export const attachClaimEvidence = async (req: Request, res: Response) => {
     const uploaded: Array<{ url: string; key: string }> = [];
     try {
       for (const file of files) {
-        const validator = file.mimetype.startsWith("image/")
-          ? validateImageFile
+        const validation = file.mimetype.startsWith("image/")
+          ? await validateImageFileBuffer(file)
           : file.mimetype.startsWith("video/")
-          ? validateVideoFile
-          : validateFile;
-        const validation = validator(file);
+          ? validateVideoFile(file)
+          : validateFile(file);
         if (!validation.valid) {
           await Promise.all(uploaded.map((f) => deleteFromS3(f.key).catch(() => null)));
           return res.status(400).json({ success: false, msg: validation.error || "Invalid file" });

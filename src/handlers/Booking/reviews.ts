@@ -6,7 +6,7 @@ import Conversation from "../../models/conversation";
 import ChatMessage from "../../models/chatMessage";
 import mongoose from "mongoose";
 import { moderateText } from "../../utils/contentModeration";
-import { uploadToS3, generateFileName, validateImageFile, deleteFromS3 } from "../../utils/s3Upload";
+import { uploadToS3, generateFileName, validateImageFileBuffer, deleteFromS3 } from "../../utils/s3Upload";
 
 const MAX_COMMENT_LENGTH = 1000;
 
@@ -57,7 +57,7 @@ export const submitCustomerReview = async (req: Request, res: Response, next: Ne
       return res.status(400).json({ success: false, msg: "Maximum 2 images allowed" });
     }
     for (const file of files) {
-      const validation = validateImageFile(file);
+      const validation = await validateImageFileBuffer(file);
       if (!validation.valid) {
         return res.status(400).json({ success: false, msg: validation.error });
       }

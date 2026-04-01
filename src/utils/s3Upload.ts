@@ -4,6 +4,7 @@ import { Request } from 'express';
 import multer from 'multer';
 import path from 'path';
 import crypto from 'crypto';
+import { fromBuffer as fileTypeFromBuffer } from 'file-type';
 
 // Initialize S3 client
 const s3Client = new S3Client({
@@ -16,23 +17,19 @@ const s3Client = new S3Client({
 
 const BUCKET_NAME = process.env.S3_BUCKET_NAME || 'fixera-uploads';
 
+const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
 
 // File filter for ID proofs (images and PDFs only)
 const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const allowedMimeTypes = [
-    // Images
-    'image/jpeg',
-    'image/jpg',
-    'image/png',
-    'image/webp',
-    // Documents
+    ...ALLOWED_IMAGE_MIMES,
     'application/pdf',
-    // Videos
     'video/mp4',
-    'video/quicktime', // .mov
-    'video/x-msvideo', // .avi
+    'video/quicktime',
+    'video/x-msvideo',
   ];
 
   if (allowedMimeTypes.includes(file.mimetype)) {
@@ -53,8 +50,7 @@ export const upload = multer({
 
 // Dedicated multer for review images (images only, 5MB limit)
 const reviewImageFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-  if (allowed.includes(file.mimetype)) {
+  if (ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
     cb(null, true);
   } else {
     cb(new Error('Invalid file type. Only JPEG, PNG, and WebP images are allowed for reviews'));
@@ -65,7 +61,23 @@ export const uploadReviewImages = multer({
   storage,
   fileFilter: reviewImageFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit for review images
+    fileSize: 5 * 1024 * 1024,
+  },
+});
+
+const profileImageFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  if (ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Only JPEG, PNG, and WebP images are allowed for profile images'));
+  }
+};
+
+export const uploadProfileImage = multer({
+  storage,
+  fileFilter: profileImageFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024,
   },
 });
 
@@ -154,9 +166,9 @@ export const validateFile = (file: Express.Multer.File): { valid: boolean; error
   }
 
   // Check file type
-  const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+  const allowedMimeTypes = [...ALLOWED_IMAGE_MIMES, 'application/pdf'];
   if (!allowedMimeTypes.includes(file.mimetype)) {
-    return { valid: false, error: 'Invalid file type. Only JPEG, PNG, and PDF files are allowed' };
+    return { valid: false, error: 'Invalid file type. Only JPEG, PNG, WebP, and PDF files are allowed' };
   }
 
   // Check filename
@@ -167,16 +179,50 @@ export const validateFile = (file: Express.Multer.File): { valid: boolean; error
   return { valid: true };
 };
 
-// Validate image file
 export const validateImageFile = (file: Express.Multer.File): { valid: boolean; error?: string } => {
   if (file.size > 5 * 1024 * 1024) {
     return { valid: false, error: 'Image must be less than 5MB' };
   }
-  const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-  if (!allowedImageTypes.includes(file.mimetype)) {
-    return { valid: false, error: 'Invalid image type' };
+  if (!ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
+    return { valid: false, error: 'Invalid image type. Only JPEG, PNG, and WebP are allowed' };
   }
   return { valid: true };
+};
+
+export const ensureFileSizeUnder = (size: number, maxBytes: number): { valid: boolean; error?: string } => {
+  if (size > maxBytes) {
+    return { valid: false, error: `File must be less than ${Math.round(maxBytes / (1024 * 1024))}MB` };
+  }
+  return { valid: true };
+};
+
+export const validateImageBuffer = async (
+  buffer: Buffer
+): Promise<{ valid: boolean; error?: string; detectedMime?: string }> => {
+  if (!buffer || buffer.length === 0) {
+    return { valid: false, error: 'Empty file buffer' };
+  }
+
+  const detected = await fileTypeFromBuffer(buffer);
+  if (!detected || !ALLOWED_IMAGE_MIMES.includes(detected.mime)) {
+    return { valid: false, error: 'File content does not match an allowed image type (JPEG, PNG, WebP)' };
+  }
+
+  return { valid: true, detectedMime: detected.mime };
+};
+
+export const validateImageFileBuffer = async (
+  file: Express.Multer.File,
+  maxBytes: number = 5 * 1024 * 1024
+): Promise<{ valid: boolean; error?: string; detectedMime?: string }> => {
+  const sizeCheck = ensureFileSizeUnder(file.size, maxBytes);
+  if (!sizeCheck.valid) return sizeCheck;
+
+  const bufferCheck = await validateImageBuffer(file.buffer);
+  if (!bufferCheck.valid) return bufferCheck;
+
+  file.mimetype = bufferCheck.detectedMime!;
+  return { valid: true, detectedMime: bufferCheck.detectedMime };
 };
 
 // Validate video file
@@ -196,8 +242,7 @@ export const validateCertificationFile = (file: Express.Multer.File): { valid: b
   if (file.size > 10 * 1024 * 1024) {
     return { valid: false, error: 'Certification must be less than 10MB' };
   }
-  const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
-  if (!allowedTypes.includes(file.mimetype)) {
+  if (file.mimetype !== 'application/pdf' && !ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
     return { valid: false, error: 'Certification must be PDF or image' };
   }
   return { valid: true };
