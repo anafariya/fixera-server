@@ -6,9 +6,25 @@ import Conversation from "../../models/conversation";
 import ChatMessage from "../../models/chatMessage";
 import mongoose from "mongoose";
 import { moderateText } from "../../utils/contentModeration";
-import { uploadToS3, generateFileName, validateImageFileBuffer, deleteFromS3 } from "../../utils/s3Upload";
+import { uploadToS3, generateFileName, validateImageFileBuffer, deleteFromS3, presignS3Url } from "../../utils/s3Upload";
 
 const MAX_COMMENT_LENGTH = 1000;
+
+const presignReviewImages = async (reviews: any[]): Promise<any[]> => {
+  return Promise.all(
+    reviews.map(async (review) => {
+      const images = review.customerReview?.images;
+      if (!Array.isArray(images) || images.length === 0) return review;
+      const signed = await Promise.all(
+        images.map(async (url: string) => {
+          const result = await presignS3Url(url);
+          return result ?? url;
+        })
+      );
+      return { ...review, customerReview: { ...review.customerReview, images: signed } };
+    })
+  );
+};
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -429,11 +445,13 @@ export const getProfessionalReviews = async (req: Request, res: Response, next: 
       ? (stats.avgCommunication + stats.avgValueOfDelivery + stats.avgQualityOfService) / 3
       : 0;
 
+    const presignedReviews = await presignReviewImages(reviews);
+
     return res.status(200).json({
       success: true,
       data: {
         professional,
-        reviews,
+        reviews: presignedReviews,
         projects: distinctProjects,
         ratingsSummary: {
           overallAverage: Math.round(overallAvg * 10) / 10,
@@ -571,11 +589,13 @@ export const getProjectReviews = async (req: Request, res: Response, next: NextF
       ? (stats.avgCommunication + stats.avgValueOfDelivery + stats.avgQualityOfService) / 3
       : 0;
 
+    const presignedReviews = await presignReviewImages(reviews);
+
     return res.status(200).json({
       success: true,
       data: {
         project: { _id: project._id, title: project.title },
-        reviews,
+        reviews: presignedReviews,
         ratingsSummary: {
           overallAverage: Math.round(overallAvg * 10) / 10,
           avgCommunication: Math.round((stats.avgCommunication || 0) * 10) / 10,
