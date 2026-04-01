@@ -81,6 +81,12 @@ const presignBookingFiles = async (bookingDoc: any) => {
     );
   }
 
+  if (Array.isArray(booking?.customerReview?.images) && booking.customerReview.images.length > 0) {
+    booking.customerReview.images = await Promise.all(
+      booking.customerReview.images.map((url: string) => presignMaybeS3Url(url))
+    );
+  }
+
   return booking;
 };
 
