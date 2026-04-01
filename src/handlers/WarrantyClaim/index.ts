@@ -17,6 +17,7 @@ import {
 import {
   deleteFromS3,
   generateFileName,
+  getPresignedUrl,
   parseS3KeyFromUrl,
   uploadToS3,
   validateFile,
@@ -34,6 +35,36 @@ const ACTIVE_CLAIM_STATUSES: WarrantyClaimStatus[] = [
   "resolved",
   "escalated",
 ];
+
+const TRUSTED_S3_HOST_RE = new RegExp(
+  `^${(process.env.S3_BUCKET_NAME || 'fixera-uploads').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.s3\\.([a-z0-9-]+\\.)?amazonaws\\.com$`,
+  'i'
+);
+
+const presignEvidenceUrls = async (urls: string[]): Promise<string[]> => {
+  return Promise.all(
+    urls.map(async (url) => {
+      try {
+        const parsed = new URL(url);
+        if (!TRUSTED_S3_HOST_RE.test(parsed.hostname)) return url;
+        const key = parseS3KeyFromUrl(url);
+        if (!key) return url;
+        return await getPresignedUrl(key, 7 * 24 * 60 * 60);
+      } catch {
+        return url;
+      }
+    })
+  );
+};
+
+const presignClaim = async (claim: any) => {
+  if (!claim) return claim;
+  const obj = claim.toObject ? claim.toObject() : { ...claim };
+  if (Array.isArray(obj.evidence) && obj.evidence.length > 0) {
+    obj.evidence = await presignEvidenceUrls(obj.evidence);
+  }
+  return obj;
+};
 
 const getRequestUserId = (req: Request): string | null => {
   const userIdRaw = req.user?._id;
@@ -567,12 +598,17 @@ export const getWarrantyClaimByBooking = async (req: Request, res: Response) => 
       return res.status(403).json({ success: false, msg: "Not authorized for this booking" });
     }
 
-    const [activeClaim, latestClaim] = await Promise.all([
+    const [activeClaimRaw, latestClaimRaw] = await Promise.all([
       WarrantyClaim.findOne({
         booking: booking._id,
         status: { $in: ACTIVE_CLAIM_STATUSES },
       }).sort({ createdAt: -1 }),
       WarrantyClaim.findOne({ booking: booking._id }).sort({ createdAt: -1 }),
+    ]);
+
+    const [activeClaim, latestClaim] = await Promise.all([
+      presignClaim(activeClaimRaw),
+      presignClaim(latestClaimRaw),
     ]);
 
     return res.status(200).json({
@@ -615,7 +651,8 @@ export const getWarrantyClaimById = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, msg: "Not authorized for this claim" });
     }
 
-    return res.status(200).json({ success: true, claim });
+    const presigned = await presignClaim(claim);
+    return res.status(200).json({ success: true, claim: presigned });
   } catch (error: any) {
     console.error("[WARRANTY] get claim by id error:", error);
     return res.status(500).json({ success: false, msg: "Failed to load warranty claim" });
@@ -653,10 +690,12 @@ export const listMyWarrantyClaims = async (req: Request, res: Response) => {
       WarrantyClaim.countDocuments(query),
     ]);
 
+    const presignedClaims = await Promise.all(claims.map((c) => presignClaim(c)));
+
     return res.status(200).json({
       success: true,
       data: {
-        claims,
+        claims: presignedClaims,
         pagination: {
           total,
           page: pageNumber,
@@ -1152,10 +1191,12 @@ export const listAdminWarrantyClaims = async (req: Request, res: Response) => {
       WarrantyClaim.countDocuments(query),
     ]);
 
+    const presignedClaims = await Promise.all(claims.map((c) => presignClaim(c)));
+
     return res.status(200).json({
       success: true,
       data: {
-        claims,
+        claims: presignedClaims,
         pagination: {
           page: pageNumber,
           limit: limitNumber,
