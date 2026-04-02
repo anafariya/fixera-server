@@ -467,11 +467,17 @@ const UserSchema = new Schema({
         enum: ['New', 'Level 1', 'Level 2', 'Level 3', 'Expert'],
         required: false
     },
-    adminTags: [{
-        type: String,
-        trim: true,
-        maxlength: 40
-    }],
+    adminTags: {
+        type: [{
+            type: String,
+            trim: true,
+            maxlength: 40
+        }],
+        validate: {
+            validator: (val: string[]) => !val || val.length <= 20,
+            message: 'adminTags cannot exceed 20 items'
+        }
+    },
     accountStatus: {
         type: String,
         enum: ['active', 'suspended'],

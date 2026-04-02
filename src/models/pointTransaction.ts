@@ -82,6 +82,7 @@ pointTransactionSchema.index({ userId: 1, createdAt: -1 });
 pointTransactionSchema.index({ userId: 1, type: 1 });
 pointTransactionSchema.index({ expiresAt: 1 }, { sparse: true });
 pointTransactionSchema.index({ source: 1 });
+pointTransactionSchema.index({ userId: 1, relatedBooking: 1, source: 1 }, { sparse: true });
 
 const PointTransaction = mongoose.model<IPointTransaction>('PointTransaction', pointTransactionSchema);
 

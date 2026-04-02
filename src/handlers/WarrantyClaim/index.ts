@@ -278,6 +278,21 @@ export const uploadWarrantyEvidence = async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, msg: "Authentication required" });
     }
 
+    if (req.method === "DELETE") {
+      const body = req.body as { urls?: string[]; keys?: string[] } | undefined;
+      const rawKeys = [
+        ...(Array.isArray(body?.keys) ? body.keys : []),
+        ...(Array.isArray(body?.urls)
+          ? body.urls
+              .map((url) => parseS3KeyFromUrl(url))
+              .filter((key): key is string => Boolean(key))
+          : []),
+      ];
+      const keys = Array.from(new Set(rawKeys.filter(Boolean)));
+      await Promise.all(keys.map((key) => deleteFromS3(key).catch(() => null)));
+      return res.status(200).json({ success: true, msg: "Evidence files cleaned up" });
+    }
+
     const files = (req.files as Express.Multer.File[]) || [];
     if (files.length === 0) {
       return res.status(400).json({ success: false, msg: "No evidence files uploaded" });

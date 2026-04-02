@@ -11,6 +11,7 @@ import { processReferralCompletion } from '../../utils/referralSystem';
 import { updateProfessionalLevel } from '../../utils/professionalLevelSystem';
 import { addPoints } from '../../utils/pointsSystem';
 import PointsConfig from '../../models/pointsConfig';
+import PointTransaction from '../../models/pointTransaction';
 import {
   addWarrantyDuration,
   getBookingWarrantyDuration,
@@ -105,6 +106,29 @@ const ensureWarrantyCoverageSnapshot = async (booking: any) => {
     endsAt,
     source: booking.warrantyCoverage?.source || source,
   };
+};
+
+const awardBookingCompletionPoints = async (
+  professionalId: any,
+  customerId: any,
+  bookingId: any
+) => {
+  const pointsConfig = await PointsConfig.getCurrentConfig();
+  if (!pointsConfig.isEnabled) return;
+  if (professionalId && pointsConfig.professionalEarningPerBooking > 0) {
+    const existing = await PointTransaction.findOne({ userId: professionalId, relatedBooking: bookingId, source: 'booking_completion' });
+    if (!existing) {
+      await addPoints(professionalId, pointsConfig.professionalEarningPerBooking, 'booking_completion',
+        `Earned for completing booking`, { relatedBooking: bookingId });
+    }
+  }
+  if (customerId && pointsConfig.customerEarningPerBooking > 0) {
+    const existing = await PointTransaction.findOne({ userId: customerId, relatedBooking: bookingId, source: 'booking_completion' });
+    if (!existing) {
+      await addPoints(customerId, pointsConfig.customerEarningPerBooking, 'booking_completion',
+        `Earned for completed booking`, { relatedBooking: bookingId });
+    }
+  }
 };
 
 /**
@@ -275,22 +299,27 @@ export const updateBookingStatusWithPayment = async (req: Request, res: Response
       });
     }
 
-    if (requestedStatus === 'completed' && booking.status === 'completed') {
-      return res.json({
-        success: true,
-        data: { message: 'Booking is already completed', booking }
-      });
-    }
-
     if (requestedStatus === 'completed') {
+      const atomicUpdate = await Booking.findOneAndUpdate(
+        { _id: booking._id, status: { $ne: 'completed' } },
+        { $set: { status: 'completed', actualEndDate: booking.actualEndDate || new Date() } },
+        { new: true }
+      );
+      if (!atomicUpdate) {
+        return res.json({
+          success: true,
+          data: { message: 'Booking is already completed', booking }
+        });
+      }
+      booking.status = atomicUpdate.status;
+      booking.actualEndDate = atomicUpdate.actualEndDate;
+
       const paymentStatus = booking.payment?.status;
       const paymentStatusValue = paymentStatus ? String(paymentStatus) : '';
       const isAlreadyCaptured =
         paymentStatusValue === 'captured' || paymentStatusValue === 'completed';
 
       if (isAlreadyCaptured) {
-        booking.status = 'completed';
-        booking.actualEndDate = booking.actualEndDate || new Date();
         markMilestonesCompleted(booking, booking.actualEndDate);
         await ensureWarrantyCoverageSnapshot(booking);
         await booking.save();
@@ -312,19 +341,8 @@ export const updateBookingStatusWithPayment = async (req: Request, res: Response
           console.error('Error updating professional level:', e);
         }
 
-        // Award points to professional and customer for booking completion
         try {
-          const pointsConfig = await PointsConfig.getCurrentConfig();
-          if (pointsConfig.isEnabled) {
-            if (proId && pointsConfig.professionalEarningPerBooking > 0) {
-              await addPoints(proId, pointsConfig.professionalEarningPerBooking, 'booking_completion',
-                `Earned for completing booking`, { relatedBooking: booking._id });
-            }
-            if (booking.customer && pointsConfig.customerEarningPerBooking > 0) {
-              await addPoints(booking.customer, pointsConfig.customerEarningPerBooking, 'booking_completion',
-                `Earned for completed booking`, { relatedBooking: booking._id });
-            }
-          }
+          await awardBookingCompletionPoints(proId, booking.customer, booking._id);
         } catch (e) {
           console.error('Error awarding booking completion points:', e);
         }
@@ -348,8 +366,6 @@ export const updateBookingStatusWithPayment = async (req: Request, res: Response
           });
         }
 
-        booking.status = 'completed';
-        booking.actualEndDate = booking.actualEndDate || new Date();
         markMilestonesCompleted(booking, booking.actualEndDate);
         await ensureWarrantyCoverageSnapshot(booking);
         await booking.save();
@@ -371,19 +387,8 @@ export const updateBookingStatusWithPayment = async (req: Request, res: Response
           console.error('Error updating professional level:', e);
         }
 
-        // Award points to professional and customer for booking completion
         try {
-          const pointsConfig = await PointsConfig.getCurrentConfig();
-          if (pointsConfig.isEnabled) {
-            if (proId2 && pointsConfig.professionalEarningPerBooking > 0) {
-              await addPoints(proId2, pointsConfig.professionalEarningPerBooking, 'booking_completion',
-                `Earned for completing booking`, { relatedBooking: booking._id });
-            }
-            if (booking.customer && pointsConfig.customerEarningPerBooking > 0) {
-              await addPoints(booking.customer, pointsConfig.customerEarningPerBooking, 'booking_completion',
-                `Earned for completed booking`, { relatedBooking: booking._id });
-            }
-          }
+          await awardBookingCompletionPoints(proId2, booking.customer, booking._id);
         } catch (e) {
           console.error('Error awarding booking completion points:', e);
         }

@@ -385,6 +385,16 @@ export const LogIn = async (req: Request, res: Response, next: NextFunction) => 
         msg: "Invalid email or password"
       });
     }
+    // Compare password first to avoid leaking account existence/status
+    const checkPassword = await bcrypt.compare(password, userExists.password!);
+
+    if (!checkPassword) {
+      return res.status(401).json({
+        success: false,
+        msg: "Invalid email or password"
+      });
+    }
+
     if (userExists.deletedAt) {
       return res.status(403).json({
         success: false,
@@ -395,16 +405,6 @@ export const LogIn = async (req: Request, res: Response, next: NextFunction) => 
       return res.status(403).json({
         success: false,
         msg: "This account is suspended"
-      });
-    }
-
-    // Compare password
-    const checkPassword = await bcrypt.compare(password, userExists.password!);
-
-    if (!checkPassword) {
-      return res.status(401).json({
-        success: false,
-        msg: "Invalid email or password"
       });
     }
 

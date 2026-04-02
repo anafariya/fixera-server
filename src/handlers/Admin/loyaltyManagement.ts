@@ -10,6 +10,9 @@ import { addPoints, deductPoints } from "../../utils/pointsSystem";
 import { updateProfessionalLevel } from "../../utils/professionalLevelSystem";
 import mongoose from 'mongoose';
 
+const LOYALTY_LEVELS = ["Bronze", "Silver", "Gold", "Platinum", "Diamond"] as const;
+const PROFESSIONAL_LEVELS = ["New", "Level 1", "Level 2", "Level 3", "Expert"] as const;
+
 // Get current loyalty configuration
 export const getLoyaltyConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -552,6 +555,9 @@ export const updateProfessionalManagement = async (req: Request, res: Response) 
     }
 
     if (professionalLevel) {
+      if (!(PROFESSIONAL_LEVELS as readonly string[]).includes(professionalLevel)) {
+        return res.status(400).json({ success: false, msg: `Invalid professional level. Allowed: ${PROFESSIONAL_LEVELS.join(", ")}` });
+      }
       professional.manualProfessionalLevelOverride = professionalLevel as any;
       professional.professionalLevel = professionalLevel as any;
     }
@@ -601,16 +607,21 @@ export const listCustomerManagement = async (req: Request, res: Response) => {
     const statuses = parseCsv(req.query.statuses);
 
     const query: Record<string, any> = { role: "customer", deletedAt: { $exists: false } };
-    if (search) {
-      const regex = new RegExp(escapeRegex(search), "i");
-      query.$or = [
-        { name: regex },
-        { email: regex },
-        { businessName: regex }
-      ];
-    }
-    if (country) {
-      query.$or = [...(query.$or || []), { "location.country": country }, { "companyAddress.country": country }];
+    const searchOr = search
+      ? (() => {
+          const regex = new RegExp(escapeRegex(search), "i");
+          return [{ name: regex }, { email: regex }, { businessName: regex }];
+        })()
+      : null;
+    const countryOr = country
+      ? [{ "location.country": country }, { "companyAddress.country": country }]
+      : null;
+    if (searchOr && countryOr) {
+      query.$and = [{ $or: searchOr }, { $or: countryOr }];
+    } else if (searchOr) {
+      query.$or = searchOr;
+    } else if (countryOr) {
+      query.$or = countryOr;
     }
     if (levels.length > 0) query.loyaltyLevel = { $in: levels };
     if (statuses.length > 0) query.accountStatus = { $in: statuses };
@@ -671,6 +682,9 @@ export const updateCustomerManagement = async (req: Request, res: Response) => {
     }
 
     if (loyaltyLevel) {
+      if (!(LOYALTY_LEVELS as readonly string[]).includes(loyaltyLevel)) {
+        return res.status(400).json({ success: false, msg: `Invalid loyalty level. Allowed: ${LOYALTY_LEVELS.join(", ")}` });
+      }
       customer.manualCustomerLevelOverride = loyaltyLevel as any;
       customer.loyaltyLevel = loyaltyLevel as any;
     }

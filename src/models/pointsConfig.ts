@@ -67,21 +67,21 @@ const pointsConfigSchema = new Schema<IPointsConfig>({
 });
 
 pointsConfigSchema.statics.getCurrentConfig = async function(): Promise<IPointsConfig> {
-  const config = await this.findOneAndUpdate(
+  let config = await this.findOneAndUpdate(
     {},
     { $setOnInsert: { ...DEFAULT_POINTS_CONFIG, lastModified: new Date() } },
     { upsert: true, new: true }
   );
-  let needsSave = false;
+  const backfill: Record<string, number> = {};
   if (config.professionalEarningPerBooking == null) {
-    config.professionalEarningPerBooking = DEFAULT_POINTS_CONFIG.professionalEarningPerBooking;
-    needsSave = true;
+    backfill.professionalEarningPerBooking = DEFAULT_POINTS_CONFIG.professionalEarningPerBooking;
   }
   if (config.customerEarningPerBooking == null) {
-    config.customerEarningPerBooking = DEFAULT_POINTS_CONFIG.customerEarningPerBooking;
-    needsSave = true;
+    backfill.customerEarningPerBooking = DEFAULT_POINTS_CONFIG.customerEarningPerBooking;
   }
-  if (needsSave) await config.save();
+  if (Object.keys(backfill).length > 0) {
+    config = await this.findOneAndUpdate({}, { $set: backfill }, { new: true });
+  }
   return config;
 };
 
