@@ -279,7 +279,24 @@ export const uploadWarrantyEvidence = async (req: Request, res: Response) => {
     }
 
     if (req.method === "DELETE") {
-      const body = req.body as { urls?: string[]; keys?: string[] } | undefined;
+      const body = req.body as { claimId?: string; urls?: string[]; keys?: string[] } | undefined;
+      const claimId = body?.claimId;
+      if (!claimId || !mongoose.Types.ObjectId.isValid(claimId)) {
+        return res.status(400).json({ success: false, msg: "Valid claimId is required" });
+      }
+
+      const claim = await WarrantyClaim.findById(claimId).select("customer professional evidence");
+      if (!claim) {
+        return res.status(404).json({ success: false, msg: "Warranty claim not found" });
+      }
+
+      const isParticipant =
+        claim.customer?.toString() === userId ||
+        claim.professional?.toString() === userId;
+      if (!isParticipant) {
+        return res.status(403).json({ success: false, msg: "Not authorized for this claim" });
+      }
+
       const rawKeys = [
         ...(Array.isArray(body?.keys) ? body.keys : []),
         ...(Array.isArray(body?.urls)
@@ -289,6 +306,20 @@ export const uploadWarrantyEvidence = async (req: Request, res: Response) => {
           : []),
       ];
       const keys = Array.from(new Set(rawKeys.filter(Boolean)));
+      if (keys.length === 0) {
+        return res.status(400).json({ success: false, msg: "At least one valid evidence key is required" });
+      }
+
+      const claimEvidenceKeys = new Set(
+        (claim.evidence || [])
+          .map((url) => parseS3KeyFromUrl(url))
+          .filter((key): key is string => Boolean(key))
+      );
+      const unauthorizedKeys = keys.filter((key) => !claimEvidenceKeys.has(key));
+      if (unauthorizedKeys.length > 0) {
+        return res.status(403).json({ success: false, msg: "One or more evidence files are not authorized for deletion" });
+      }
+
       await Promise.all(keys.map((key) => deleteFromS3(key).catch(() => null)));
       return res.status(200).json({ success: true, msg: "Evidence files cleaned up" });
     }

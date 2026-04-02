@@ -472,6 +472,11 @@ const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$
 
 export const listProfessionalManagement = async (req: Request, res: Response) => {
   try {
+    const adminId = (req as any).admin?._id;
+    if (!adminId) {
+      return res.status(403).json({ success: false, msg: "Unauthorized" });
+    }
+
     const page = Math.max(Number.parseInt(String(req.query.page || "1"), 10) || 1, 1);
     const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit || "20"), 10) || 20, 1), 100);
     const skip = (page - 1) * limit;
@@ -536,6 +541,10 @@ export const listProfessionalManagement = async (req: Request, res: Response) =>
 export const updateProfessionalManagement = async (req: Request, res: Response) => {
   try {
     const adminId = (req as any).admin?._id;
+    if (!adminId) {
+      return res.status(401).json({ success: false, msg: `Admin authentication required to update professional management (adminId: ${String(adminId)})` });
+    }
+
     const { professionalId } = req.params;
     const {
       professionalLevel,
@@ -567,11 +576,12 @@ export const updateProfessionalManagement = async (req: Request, res: Response) 
     if (action === "suspend") {
       professional.accountStatus = "suspended";
       professional.professionalStatus = "suspended";
-      if (reason?.trim()) professional.rejectionReason = reason.trim();
+      if (reason?.trim()) professional.suspensionReason = reason.trim();
     }
     if (action === "reactivate") {
       professional.accountStatus = "active";
       if (professional.professionalStatus === "suspended") professional.professionalStatus = "approved";
+      professional.suspensionReason = undefined;
     }
 
     await professional.save();
@@ -598,6 +608,11 @@ export const updateProfessionalManagement = async (req: Request, res: Response) 
 
 export const listCustomerManagement = async (req: Request, res: Response) => {
   try {
+    const adminId = (req as any).admin?._id;
+    if (!adminId) {
+      return res.status(403).json({ success: false, msg: "Unauthorized" });
+    }
+
     const page = Math.max(Number.parseInt(String(req.query.page || "1"), 10) || 1, 1);
     const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit || "20"), 10) || 20, 1), 100);
     const skip = (page - 1) * limit;
@@ -667,6 +682,10 @@ export const listCustomerManagement = async (req: Request, res: Response) => {
 export const updateCustomerManagement = async (req: Request, res: Response) => {
   try {
     const adminId = (req as any).admin?._id;
+    if (!adminId) {
+      return res.status(401).json({ success: false, msg: `Admin authentication required to update customer management (adminId: ${String(adminId)})` });
+    }
+
     const { customerId } = req.params;
     const {
       loyaltyLevel,

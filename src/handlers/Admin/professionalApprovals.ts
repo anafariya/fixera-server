@@ -210,6 +210,7 @@ export const approveProfessional = async (req: Request, res: Response, next: Nex
     professional.approvedBy = (adminUser._id as mongoose.Types.ObjectId).toString();
     professional.approvedAt = new Date();
     professional.rejectionReason = undefined; // Clear any previous rejection reason
+    professional.suspensionReason = undefined;
     await professional.save();
 
     // Send approval email
@@ -273,6 +274,7 @@ export const rejectProfessional = async (req: Request, res: Response, next: Next
     // Update professional status
     professional.professionalStatus = 'rejected';
     professional.rejectionReason = reason.trim();
+    professional.suspensionReason = undefined;
     professional.approvedBy = undefined;
     professional.approvedAt = undefined;
     await professional.save();
@@ -338,7 +340,7 @@ export const suspendProfessional = async (req: Request, res: Response, next: Nex
 
     // Update professional status
     professional.professionalStatus = 'suspended';
-    professional.rejectionReason = reason.trim();
+    professional.suspensionReason = reason.trim();
     await professional.save();
 
     // Send suspension email
@@ -361,7 +363,7 @@ export const suspendProfessional = async (req: Request, res: Response, next: Nex
           name: professional.name,
           email: professional.email,
           professionalStatus: professional.professionalStatus,
-          rejectionReason: professional.rejectionReason
+          suspensionReason: professional.suspensionReason
         }
       }
     });
@@ -404,7 +406,7 @@ export const reactivateProfessional = async (req: Request, res: Response, next: 
 
     // Update professional status back to approved
     professional.professionalStatus = 'approved';
-    professional.rejectionReason = undefined; // Clear suspension reason
+    professional.suspensionReason = undefined;
     await professional.save();
 
     // Send reactivation email
@@ -555,6 +557,7 @@ export const reviewIdChanges = async (req: Request, res: Response, next: NextFun
       professional.approvedBy = (adminUser._id as mongoose.Types.ObjectId).toString();
       professional.approvedAt = new Date();
       professional.rejectionReason = undefined;
+      professional.suspensionReason = undefined;
       await professional.save();
 
       // Send ID change approval email (distinct from initial profile approval)

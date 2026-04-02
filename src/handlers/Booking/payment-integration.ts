@@ -12,6 +12,7 @@ import { updateProfessionalLevel } from '../../utils/professionalLevelSystem';
 import { addPoints } from '../../utils/pointsSystem';
 import PointsConfig from '../../models/pointsConfig';
 import PointTransaction from '../../models/pointTransaction';
+import User from '../../models/user';
 import {
   addWarrantyDuration,
   getBookingWarrantyDuration,
@@ -108,6 +109,41 @@ const ensureWarrantyCoverageSnapshot = async (booking: any) => {
   };
 };
 
+const isDuplicateKeyError = (error: any): boolean => error?.code === 11000;
+
+const getProfessionalId = async (booking: any) => {
+  if (booking.professional) return booking.professional;
+  if (!booking.project) return undefined;
+
+  const project = await Project.findById(booking.project).select('professionalId');
+  return project?.professionalId;
+};
+
+const awardBookingCompletionPointsToUser = async (
+  userId: any,
+  amount: number,
+  bookingId: any,
+  description: string
+) => {
+  if (!userId || amount <= 0) return;
+
+  const existing = await PointTransaction.findOne({ userId, relatedBooking: bookingId, source: 'booking_completion' });
+  if (existing) return;
+
+  try {
+    await addPoints(userId, amount, 'booking_completion', description, { relatedBooking: bookingId });
+  } catch (error: any) {
+    if (!isDuplicateKeyError(error)) {
+      throw error;
+    }
+
+    await User.updateOne(
+      { _id: userId, role: { $ne: 'employee' } },
+      { $inc: { points: -amount } }
+    );
+  }
+};
+
 const awardBookingCompletionPoints = async (
   professionalId: any,
   customerId: any,
@@ -115,20 +151,18 @@ const awardBookingCompletionPoints = async (
 ) => {
   const pointsConfig = await PointsConfig.getCurrentConfig();
   if (!pointsConfig.isEnabled) return;
-  if (professionalId && pointsConfig.professionalEarningPerBooking > 0) {
-    const existing = await PointTransaction.findOne({ userId: professionalId, relatedBooking: bookingId, source: 'booking_completion' });
-    if (!existing) {
-      await addPoints(professionalId, pointsConfig.professionalEarningPerBooking, 'booking_completion',
-        `Earned for completing booking`, { relatedBooking: bookingId });
-    }
-  }
-  if (customerId && pointsConfig.customerEarningPerBooking > 0) {
-    const existing = await PointTransaction.findOne({ userId: customerId, relatedBooking: bookingId, source: 'booking_completion' });
-    if (!existing) {
-      await addPoints(customerId, pointsConfig.customerEarningPerBooking, 'booking_completion',
-        `Earned for completed booking`, { relatedBooking: bookingId });
-    }
-  }
+  await awardBookingCompletionPointsToUser(
+    professionalId,
+    pointsConfig.professionalEarningPerBooking,
+    bookingId,
+    'Earned for completing booking'
+  );
+  await awardBookingCompletionPointsToUser(
+    customerId,
+    pointsConfig.customerEarningPerBooking,
+    bookingId,
+    'Earned for completed booking'
+  );
 };
 
 /**
@@ -318,9 +352,10 @@ export const updateBookingStatusWithPayment = async (req: Request, res: Response
       const paymentStatusValue = paymentStatus ? String(paymentStatus) : '';
       const isAlreadyCaptured =
         paymentStatusValue === 'captured' || paymentStatusValue === 'completed';
+      const completionDate = booking.actualEndDate || new Date();
 
       if (isAlreadyCaptured) {
-        markMilestonesCompleted(booking, booking.actualEndDate);
+        markMilestonesCompleted(booking, completionDate);
         await ensureWarrantyCoverageSnapshot(booking);
         await booking.save();
 
@@ -333,8 +368,7 @@ export const updateBookingStatusWithPayment = async (req: Request, res: Response
         }
 
         // Update professional's level after booking completion
-        const proId = booking.professional
-          || (booking.project ? (await Project.findById(booking.project).select('professionalId'))?.professionalId : undefined);
+        const proId = await getProfessionalId(booking);
         try {
           if (proId) await updateProfessionalLevel(proId);
         } catch (e) {
@@ -366,7 +400,7 @@ export const updateBookingStatusWithPayment = async (req: Request, res: Response
           });
         }
 
-        markMilestonesCompleted(booking, booking.actualEndDate);
+        markMilestonesCompleted(booking, completionDate);
         await ensureWarrantyCoverageSnapshot(booking);
         await booking.save();
 
@@ -379,8 +413,7 @@ export const updateBookingStatusWithPayment = async (req: Request, res: Response
         }
 
         // Update professional's level after booking completion
-        const proId2 = booking.professional
-          || (booking.project ? (await Project.findById(booking.project).select('professionalId'))?.professionalId : undefined);
+        const proId2 = await getProfessionalId(booking);
         try {
           if (proId2) await updateProfessionalLevel(proId2);
         } catch (e) {

@@ -37,6 +37,7 @@ export interface IUser extends Document {
     approvedBy?: string; // Admin user ID who approved
     approvedAt?: Date;
     rejectionReason?: string;
+    suspensionReason?: string;
     lastIdChangeRejectionReason?: string;
     // Customer-specific fields
     customerType?: CustomerType;
@@ -277,6 +278,11 @@ const UserSchema = new Schema({
         required: false
     },
     rejectionReason: {
+        type: String,
+        required: false,
+        maxlength: 500
+    },
+    suspensionReason: {
         type: String,
         required: false,
         maxlength: 500
@@ -653,6 +659,7 @@ UserSchema.pre("save", function (next) {
         this.set("approvedBy", undefined);
         this.set("approvedAt", undefined);
         this.set("rejectionReason", undefined);
+        this.set("suspensionReason", undefined);
         this.set("lastIdChangeRejectionReason", undefined);
 
         // Customer-only fields
