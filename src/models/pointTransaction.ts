@@ -1,7 +1,7 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export type PointTransactionType = 'earn' | 'spend';
-export type PointSource = 'referral' | 'redemption' | 'boost' | 'admin-adjustment' | 'expiry';
+export type PointSource = 'referral' | 'booking_completion' | 'redemption' | 'boost' | 'admin-adjustment' | 'expiry';
 
 export interface IPointTransaction extends Document {
   userId: mongoose.Types.ObjectId;
@@ -33,7 +33,7 @@ const pointTransactionSchema = new Schema<IPointTransaction>({
   },
   source: {
     type: String,
-    enum: ['referral', 'redemption', 'boost', 'admin-adjustment', 'expiry'],
+    enum: ['referral', 'booking_completion', 'redemption', 'boost', 'admin-adjustment', 'expiry'],
     required: true
   },
   amount: {
@@ -82,6 +82,7 @@ pointTransactionSchema.index({ userId: 1, createdAt: -1 });
 pointTransactionSchema.index({ userId: 1, type: 1 });
 pointTransactionSchema.index({ expiresAt: 1 }, { sparse: true });
 pointTransactionSchema.index({ source: 1 });
+pointTransactionSchema.index({ userId: 1, relatedBooking: 1, source: 1 }, { unique: true, sparse: true });
 
 const PointTransaction = mongoose.model<IPointTransaction>('PointTransaction', pointTransactionSchema);
 

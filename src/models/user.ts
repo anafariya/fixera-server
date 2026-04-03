@@ -37,6 +37,8 @@ export interface IUser extends Document {
     approvedBy?: string; // Admin user ID who approved
     approvedAt?: Date;
     rejectionReason?: string;
+    suspensionReason?: string;
+    previousProfessionalStatus?: 'draft' | 'pending' | 'approved' | 'rejected';
     lastIdChangeRejectionReason?: string;
     // Customer-specific fields
     customerType?: CustomerType;
@@ -116,6 +118,7 @@ export interface IUser extends Document {
     professionalOnboardingCompletedAt?: Date;
     // Loyalty system fields
     loyaltyLevel?: 'Bronze' | 'Silver' | 'Gold' | 'Platinum' | 'Diamond';
+    manualCustomerLevelOverride?: 'Bronze' | 'Silver' | 'Gold' | 'Platinum' | 'Diamond';
     totalSpent?: number;
     totalBookings?: number;
     lastLoyaltyUpdate?: Date;
@@ -124,6 +127,11 @@ export interface IUser extends Document {
     pointsExpiry?: Date;
     // Professional level
     professionalLevel?: 'New' | 'Level 1' | 'Level 2' | 'Level 3' | 'Expert';
+    manualProfessionalLevelOverride?: 'New' | 'Level 1' | 'Level 2' | 'Level 3' | 'Expert';
+    adminTags?: string[];
+    accountStatus?: 'active' | 'suspended' | 'rejected';
+    deletedAt?: Date;
+    deletedBy?: Types.ObjectId;
     // Referral system fields
     referralCode?: string;
     referredBy?: Types.ObjectId;
@@ -275,6 +283,16 @@ const UserSchema = new Schema({
         required: false,
         maxlength: 500
     },
+    suspensionReason: {
+        type: String,
+        required: false,
+        maxlength: 500
+    },
+    previousProfessionalStatus: {
+        type: String,
+        enum: ['draft', 'pending', 'approved', 'rejected'],
+        required: false
+    },
     lastIdChangeRejectionReason: {
         type: String,
         required: false,
@@ -421,6 +439,11 @@ const UserSchema = new Schema({
         enum: ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'],
         default: 'Bronze'
     },
+    manualCustomerLevelOverride: {
+        type: String,
+        enum: ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'],
+        required: false
+    },
     totalSpent: {
         type: Number,
         default: 0,
@@ -450,6 +473,36 @@ const UserSchema = new Schema({
         type: String,
         enum: ['New', 'Level 1', 'Level 2', 'Level 3', 'Expert'],
         default: 'New'
+    },
+    manualProfessionalLevelOverride: {
+        type: String,
+        enum: ['New', 'Level 1', 'Level 2', 'Level 3', 'Expert'],
+        required: false
+    },
+    adminTags: {
+        type: [{
+            type: String,
+            trim: true,
+            maxlength: 40
+        }],
+        validate: {
+            validator: (val: string[]) => !val || val.length <= 20,
+            message: 'adminTags cannot exceed 20 items'
+        }
+    },
+    accountStatus: {
+        type: String,
+        enum: ['active', 'suspended', 'rejected'],
+        default: 'active'
+    },
+    deletedAt: {
+        type: Date,
+        required: false
+    },
+    deletedBy: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: false
     },
     // Referral system fields
     referralCode: {
@@ -612,6 +665,7 @@ UserSchema.pre("save", function (next) {
         this.set("approvedBy", undefined);
         this.set("approvedAt", undefined);
         this.set("rejectionReason", undefined);
+        this.set("suspensionReason", undefined);
         this.set("lastIdChangeRejectionReason", undefined);
 
         // Customer-only fields
@@ -622,6 +676,7 @@ UserSchema.pre("save", function (next) {
         this.set("totalSpent", undefined);
         this.set("totalBookings", undefined);
         this.set("lastLoyaltyUpdate", undefined);
+        this.set("manualCustomerLevelOverride", undefined);
         this.set("points", undefined);
         this.set("pointsExpiry", undefined);
 
@@ -633,6 +688,8 @@ UserSchema.pre("save", function (next) {
 
         this.set("profileCompletedAt", undefined);
         this.set("professionalOnboardingCompletedAt", undefined);
+        this.set("manualProfessionalLevelOverride", undefined);
+        this.set("adminTags", undefined);
     }
     next();
 });
@@ -641,6 +698,10 @@ UserSchema.index({ role: 1, professionalStatus: 1 });
 UserSchema.index({ role: 1 });
 UserSchema.index({ role: 1, points: 1 });
 UserSchema.index({ role: 1, totalSpent: -1 });
+UserSchema.index({ role: 1, loyaltyLevel: 1 });
+UserSchema.index({ role: 1, professionalLevel: 1 });
+UserSchema.index({ role: 1, accountStatus: 1 });
+UserSchema.index({ role: 1, adminTags: 1 });
 UserSchema.index({ 'employee.companyId': 1 });
 UserSchema.index({ email: 1 });
 UserSchema.index({ phone: 1 });

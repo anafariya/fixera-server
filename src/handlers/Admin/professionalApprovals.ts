@@ -207,9 +207,11 @@ export const approveProfessional = async (req: Request, res: Response, next: Nex
 
     // Update professional status
     professional.professionalStatus = 'approved';
+    professional.accountStatus = 'active';
     professional.approvedBy = (adminUser._id as mongoose.Types.ObjectId).toString();
     professional.approvedAt = new Date();
     professional.rejectionReason = undefined; // Clear any previous rejection reason
+    professional.suspensionReason = undefined;
     await professional.save();
 
     // Send approval email
@@ -272,7 +274,9 @@ export const rejectProfessional = async (req: Request, res: Response, next: Next
 
     // Update professional status
     professional.professionalStatus = 'rejected';
+    professional.accountStatus = 'rejected';
     professional.rejectionReason = reason.trim();
+    professional.suspensionReason = undefined;
     professional.approvedBy = undefined;
     professional.approvedAt = undefined;
     await professional.save();
@@ -337,8 +341,12 @@ export const suspendProfessional = async (req: Request, res: Response, next: Nex
     }
 
     // Update professional status
+    if (professional.professionalStatus !== 'suspended' && !professional.previousProfessionalStatus) {
+      professional.previousProfessionalStatus = professional.professionalStatus as any;
+    }
     professional.professionalStatus = 'suspended';
-    professional.rejectionReason = reason.trim();
+    professional.accountStatus = 'suspended';
+    professional.suspensionReason = reason.trim();
     await professional.save();
 
     // Send suspension email
@@ -361,7 +369,7 @@ export const suspendProfessional = async (req: Request, res: Response, next: Nex
           name: professional.name,
           email: professional.email,
           professionalStatus: professional.professionalStatus,
-          rejectionReason: professional.rejectionReason
+          suspensionReason: professional.suspensionReason
         }
       }
     });
@@ -402,9 +410,11 @@ export const reactivateProfessional = async (req: Request, res: Response, next: 
       });
     }
 
-    // Update professional status back to approved
-    professional.professionalStatus = 'approved';
-    professional.rejectionReason = undefined; // Clear suspension reason
+    // Restore professional status from the pre-suspension snapshot when available
+    professional.professionalStatus = (professional.previousProfessionalStatus as any) || 'approved';
+    professional.previousProfessionalStatus = undefined;
+    professional.accountStatus = 'active';
+    professional.suspensionReason = undefined;
     await professional.save();
 
     // Send reactivation email
@@ -551,10 +561,12 @@ export const reviewIdChanges = async (req: Request, res: Response, next: NextFun
       // Clear pending changes, re-approve professional
       professional.pendingIdChanges = undefined;
       professional.professionalStatus = 'approved';
+      professional.accountStatus = 'active';
       professional.isIdVerified = true;
       professional.approvedBy = (adminUser._id as mongoose.Types.ObjectId).toString();
       professional.approvedAt = new Date();
       professional.rejectionReason = undefined;
+      professional.suspensionReason = undefined;
       await professional.save();
 
       // Send ID change approval email (distinct from initial profile approval)
@@ -622,6 +634,7 @@ export const reviewIdChanges = async (req: Request, res: Response, next: NextFun
 
       professional.pendingIdChanges = undefined;
       professional.professionalStatus = 'approved';
+      professional.accountStatus = 'active';
       professional.isIdVerified = true;
       professional.lastIdChangeRejectionReason = reason.trim();
       await professional.save();

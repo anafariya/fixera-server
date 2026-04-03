@@ -39,6 +39,7 @@ export const GetCurrentUser = async (req: Request, res: Response, next: NextFunc
         approvedBy: user.approvedBy,
         approvedAt: user.approvedAt,
         rejectionReason: user.rejectionReason,
+        suspensionReason: user.suspensionReason,
         businessInfo: user.businessInfo,
         hourlyRate: user.hourlyRate,
         currency: user.currency,

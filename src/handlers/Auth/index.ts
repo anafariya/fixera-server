@@ -306,6 +306,7 @@ export const SignUp = async (req: Request, res: Response, next: NextFunction) =>
       approvedBy: user.approvedBy,
       approvedAt: user.approvedAt,
       rejectionReason: user.rejectionReason,
+      suspensionReason: user.suspensionReason,
       businessInfo: user.businessInfo,
       hourlyRate: user.hourlyRate,
       currency: user.currency,
@@ -385,14 +386,26 @@ export const LogIn = async (req: Request, res: Response, next: NextFunction) => 
         msg: "Invalid email or password"
       });
     }
-
-    // Compare password
+    // Compare password first to avoid leaking account existence/status
     const checkPassword = await bcrypt.compare(password, userExists.password!);
 
     if (!checkPassword) {
       return res.status(401).json({
         success: false,
         msg: "Invalid email or password"
+      });
+    }
+
+    if (userExists.deletedAt) {
+      return res.status(403).json({
+        success: false,
+        msg: "This account has been deleted"
+      });
+    }
+    if (userExists.accountStatus === 'suspended') {
+      return res.status(403).json({
+        success: false,
+        msg: "This account is suspended"
       });
     }
 
@@ -545,6 +558,7 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
       approvedBy: user.approvedBy,
       approvedAt: user.approvedAt,
       rejectionReason: user.rejectionReason,
+      suspensionReason: user.suspensionReason,
       businessInfo: user.businessInfo,
       hourlyRate: user.hourlyRate,
       currency: user.currency,
@@ -567,6 +581,14 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
       referredBy: user.referredBy,
       points: user.points || 0,
       pointsExpiry: user.pointsExpiry,
+      loyaltyLevel: user.loyaltyLevel,
+      manualCustomerLevelOverride: user.manualCustomerLevelOverride,
+      totalSpent: user.totalSpent || 0,
+      totalBookings: user.totalBookings || 0,
+      professionalLevel: user.professionalLevel,
+      manualProfessionalLevelOverride: user.manualProfessionalLevelOverride,
+      adminTags: user.adminTags || [],
+      accountStatus: user.accountStatus || 'active',
       totalReferrals: user.totalReferrals || 0,
       completedReferrals: user.completedReferrals || 0,
       createdAt: user.createdAt,

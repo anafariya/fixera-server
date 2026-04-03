@@ -30,6 +30,7 @@ export interface IWarrantyClaim extends Document {
   openedAt: Date;
   proposal?: {
     message: string;
+    resolveByDate?: Date;
     proposedScheduleAt?: Date;
     proposedBy: Types.ObjectId;
     proposedAt: Date;
@@ -46,6 +47,7 @@ export interface IWarrantyClaim extends Document {
   };
   resolution?: {
     summary: string;
+    attachments?: string[];
     resolvedAt: Date;
     resolvedBy: Types.ObjectId;
     customerConfirmedAt?: Date;
@@ -124,7 +126,13 @@ const WarrantyClaimSchema = new Schema<IWarrantyClaim>(
       trim: true,
       maxlength: 2000,
     },
-    evidence: [{ type: String }],
+    evidence: {
+      type: [{ type: String, maxlength: 2048 }],
+      validate: {
+        validator: (val: string[]) => !val || val.length <= 10,
+        message: 'evidence cannot exceed 10 items'
+      }
+    },
     warrantyEndsAt: { type: Date },
     openedAt: {
       type: Date,
@@ -133,6 +141,7 @@ const WarrantyClaimSchema = new Schema<IWarrantyClaim>(
     },
     proposal: {
       message: { type: String, maxlength: 3000 },
+      resolveByDate: { type: Date },
       proposedScheduleAt: { type: Date },
       proposedBy: { type: Schema.Types.ObjectId, ref: "User" },
       proposedAt: { type: Date },
@@ -149,6 +158,13 @@ const WarrantyClaimSchema = new Schema<IWarrantyClaim>(
     },
     resolution: {
       summary: { type: String, maxlength: 3000 },
+      attachments: {
+        type: [{ type: String, maxlength: 2048 }],
+        validate: {
+          validator: (val: string[]) => !val || val.length <= 10,
+          message: 'resolution attachments cannot exceed 10 items'
+        }
+      },
       resolvedAt: { type: Date },
       resolvedBy: { type: Schema.Types.ObjectId, ref: "User" },
       customerConfirmedAt: { type: Date },

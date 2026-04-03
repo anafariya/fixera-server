@@ -25,6 +25,7 @@ const router = express.Router();
 router.use(protect);
 
 router.post("/upload-evidence", upload.array("files", 10), uploadWarrantyEvidence);
+router.delete("/upload-evidence", uploadWarrantyEvidence);
 router.post("/", openWarrantyClaim);
 router.get("/my", listMyWarrantyClaims);
 
