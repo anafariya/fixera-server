@@ -811,6 +811,13 @@ export const setBookingSchedule = async (req: Request, res: Response) => {
         booking.selectedSubprojectIndex
       );
 
+      if (typeof resolvedSubprojectIndex !== 'number') {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'MUST_SELECT_SUBPROJECT', message: 'Please select a subproject/package before scheduling' }
+        });
+      }
+
       const isRfqSubproject = typeof resolvedSubprojectIndex === 'number'
         && Array.isArray(projectDoc.subprojects)
         && projectDoc.subprojects[resolvedSubprojectIndex]?.pricing?.type === 'rfq';

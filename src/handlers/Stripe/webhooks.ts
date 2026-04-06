@@ -216,6 +216,13 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
     if (paymentIntent.latest_charge) {
       booking.payment.stripeChargeId = paymentIntent.latest_charge as string;
     }
+    if (typeof (booking.payment as any).milestoneIndex === 'number' && Array.isArray(booking.milestonePayments)) {
+      const ms = booking.milestonePayments[(booking.payment as any).milestoneIndex];
+      if (ms && ms.status !== 'paid') {
+        ms.status = 'paid';
+        ms.paidAt = new Date();
+      }
+    }
     booking.status = 'booked';
     await booking.save();
 

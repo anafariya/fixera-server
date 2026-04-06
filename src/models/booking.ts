@@ -150,6 +150,7 @@ export interface IBooking extends Document {
   payment?: {
     // Core payment info
     amount: number;
+    milestoneIndex?: number;
     currency: string;
     method?: 'card' | 'bank_transfer' | 'cash';
     status: 'pending' | 'authorized' | 'completed' | 'failed' | 'refunded' | 'partially_refunded' | 'disputed';
@@ -591,6 +592,7 @@ const BookingSchema = new Schema({
   payment: {
     // Core payment info
     amount: { type: Number, min: 0 },
+    milestoneIndex: { type: Number },
     currency: {
       type: String,
       enum: ['USD', 'EUR', 'GBP', 'CAD', 'AUD'],

@@ -212,6 +212,7 @@ export const createPaymentIntent = async (
 
     let chargeAmount = booking.quote.amount;
     let milestoneIndex: number | null = null;
+    let milestoneOrder: number | null = null;
     if (Array.isArray(booking.milestonePayments) && booking.milestonePayments.length > 0) {
       const sorted = booking.milestonePayments
         .map((m: any, idx: number) => ({ ...m.toObject?.() || m, _originalIndex: idx }))
@@ -223,13 +224,10 @@ export const createPaymentIntent = async (
         if (cond === 'on_start') return true;
         if (cond === 'on_milestone_start') return m.workStatus === 'in_progress' || m.workStatus === 'completed';
         if (cond === 'on_milestone_completion') {
-          const prevOrder = (m.order ?? 0) - 1;
-          const prev = sorted.find((s: any) => (s.order ?? 0) === prevOrder);
-          return prev && prev.workStatus === 'completed';
+          return m.workStatus === 'completed';
         }
         if (cond === 'on_project_completion') {
-          return sorted.filter((s: any) => s._originalIndex !== m._originalIndex)
-            .every((s: any) => s.workStatus === 'completed');
+          return sorted.every((s: any) => s.workStatus === 'completed');
         }
         if (cond === 'custom_date') {
           return m.customDueDate && new Date(m.customDueDate) <= new Date();
@@ -241,6 +239,7 @@ export const createPaymentIntent = async (
       if (nextPayable) {
         chargeAmount = nextPayable.amount;
         milestoneIndex = nextPayable._originalIndex;
+        milestoneOrder = nextPayable.order ?? 0;
       } else {
         return {
           success: false,
@@ -252,22 +251,41 @@ export const createPaymentIntent = async (
       }
     }
     if (selectedExtraOptionsTotal > 0) {
-      if (!Array.isArray(booking.milestonePayments) || booking.milestonePayments.length === 0) {
-        chargeAmount += selectedExtraOptionsTotal;
-      } else if (milestoneIndex === 0) {
-        chargeAmount += selectedExtraOptionsTotal;
+      if (Array.isArray(booking.milestonePayments) && booking.milestonePayments.length > 0) {
+        const minOrder = Math.min(...booking.milestonePayments.map((m: any) => m.order ?? 0));
+        if (milestoneOrder === minOrder) {
+          chargeAmount += selectedExtraOptionsTotal;
+        }
       }
     }
 
-    // Calculate auto-discount (includes points if requested)
-    const discountBreakdown = await calculateAutoDiscount(
+    const fullBookingAmount = booking.quote.amount;
+    const fullDiscountBreakdown = await calculateAutoDiscount(
       customer._id.toString(),
       professional._id.toString(),
       booking.project ? (booking.project as any)._id?.toString() || booking.project.toString() : null,
-      chargeAmount,
+      fullBookingAmount,
       customer.totalSpent || 0,
       pointsToRedeem
     );
+
+    let discountBreakdown = fullDiscountBreakdown;
+    if (fullBookingAmount > 0 && chargeAmount < fullBookingAmount) {
+      const ratio = chargeAmount / fullBookingAmount;
+      const proratedLoyalty = Math.round(fullDiscountBreakdown.loyaltyDiscount.amount * ratio * 100) / 100;
+      const proratedRepeat = Math.round(fullDiscountBreakdown.repeatBuyerDiscount.amount * ratio * 100) / 100;
+      const proratedPoints = Math.round(fullDiscountBreakdown.pointsDiscount.discountAmount * ratio * 100) / 100;
+      const proratedTotal = proratedLoyalty + proratedRepeat + proratedPoints;
+      discountBreakdown = {
+        ...fullDiscountBreakdown,
+        loyaltyDiscount: { ...fullDiscountBreakdown.loyaltyDiscount, amount: proratedLoyalty },
+        repeatBuyerDiscount: { ...fullDiscountBreakdown.repeatBuyerDiscount, amount: proratedRepeat },
+        pointsDiscount: { ...fullDiscountBreakdown.pointsDiscount, discountAmount: proratedPoints },
+        totalDiscount: proratedTotal,
+        originalAmount: chargeAmount,
+        finalAmount: chargeAmount - proratedTotal,
+      };
+    }
 
     // Use discounted amount for VAT and payment calculations
     const discountedQuoteAmount = discountBreakdown.finalAmount;
@@ -350,6 +368,7 @@ export const createPaymentIntent = async (
       vatAmount,
       vatRate: vatCalculation.vatRate,
       totalWithVat: totalAmount,
+      ...(milestoneIndex !== null && { milestoneIndex }),
       ...(discountBreakdown.totalDiscount > 0 && {
         discount: {
           loyaltyTier: discountBreakdown.loyaltyDiscount.tier,
@@ -387,6 +406,7 @@ export const createPaymentIntent = async (
           platformCommission,
           professionalPayout,
           stripePaymentIntentId: paymentIntent.id,
+          ...(milestoneIndex !== null && { milestoneIndex }),
           metadata: {
             environment: STRIPE_CONFIG.environment,
             projectId: projectInfo?._id?.toString?.(),
@@ -498,6 +518,13 @@ export const confirmPayment = async (req: Request, res: Response) => {
       booking.payment!.capturedAt = new Date();
       if (paymentIntent.latest_charge) {
         booking.payment!.stripeChargeId = paymentIntent.latest_charge as string;
+      }
+      if (typeof booking.payment!.milestoneIndex === 'number' && Array.isArray(booking.milestonePayments)) {
+        const ms = booking.milestonePayments[booking.payment!.milestoneIndex];
+        if (ms && ms.status !== 'paid') {
+          ms.status = 'paid';
+          ms.paidAt = new Date();
+        }
       }
       booking.status = 'booked';
 

@@ -60,7 +60,7 @@ const presignBookingFiles = async (bookingDoc: any) => {
   if (Array.isArray(booking?.rfqData?.answers) && booking.rfqData.answers.length > 0) {
     booking.rfqData.answers = await Promise.all(
       booking.rfqData.answers.map(async (answer: any) =>
-        answer?.fieldType === 'file' || answer?.type === 'attachment'
+        answer?.fieldType === 'file' || answer?.type === 'file' || answer?.type === 'attachment'
           ? { ...answer, answer: await presignMaybeS3Url(answer?.answer) }
           : answer
       )
@@ -316,6 +316,17 @@ export const createBooking = async (req: Request, res: Response, next: NextFunct
         }
       }
 
+      if (
+        typeof effectiveSubprojectIndex !== 'number' &&
+        Array.isArray(project.subprojects) &&
+        project.subprojects.length > 1
+      ) {
+        return res.status(400).json({
+          success: false,
+          msg: 'Please select a subproject/package before booking',
+        });
+      }
+
       const subprojectIndex = effectiveSubprojectIndex;
 
       const isRfqSubproject =
@@ -549,7 +560,7 @@ export const createBooking = async (req: Request, res: Response, next: NextFunct
           (roundedCheckoutAmount - extraOptionsTotal + Number.EPSILON) * 100
         ) / 100;
         bookingData.quote = {
-          amount: quoteBaseAmount,
+          amount: roundedCheckoutAmount,
           currency: "EUR",
           description: `Auto-generated checkout quote for ${project.title}`,
           breakdown: [
