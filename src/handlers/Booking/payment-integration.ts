@@ -95,12 +95,15 @@ const resolveBookingSubprojectIndex = (projectDoc: any, requestedIndex: unknown)
   return undefined;
 };
 
-const normalizeSelectedExtraOptions = (extraOptions: unknown, projectDoc: any): number[] => {
+const normalizeSelectedExtraOptions = (
+  extraOptions: unknown,
+  projectDoc: any
+): { extraOptionId: string; bookedPrice: number }[] => {
   if (!Array.isArray(extraOptions) || !Array.isArray(projectDoc?.extraOptions)) {
     return [];
   }
 
-  return Array.from(
+  const indexes = Array.from(
     new Set(
       extraOptions
         .map((value: unknown) =>
@@ -118,6 +121,11 @@ const normalizeSelectedExtraOptions = (extraOptions: unknown, projectDoc: any): 
         )
     )
   );
+
+  return indexes.map((idx) => {
+    const opt = projectDoc.extraOptions[idx];
+    return { extraOptionId: opt._id.toString(), bookedPrice: opt.price };
+  });
 };
 
 const isValidBookingStatus = (value: string): value is BookingStatus =>

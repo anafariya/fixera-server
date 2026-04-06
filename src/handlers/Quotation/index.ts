@@ -668,6 +668,11 @@ export const createDirectQuotation = async (req: Request, res: Response) => {
     }
 
     let linkedProject: any = null;
+    if (projectId) {
+      if (!mongoose.Types.ObjectId.isValid(projectId)) {
+        return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid project ID format' } });
+      }
+    }
     if (projectId && mongoose.Types.ObjectId.isValid(projectId)) {
       const { default: Project } = await import('../../models/project');
       linkedProject = await Project.findById(projectId).select('title subprojects professionalId status');

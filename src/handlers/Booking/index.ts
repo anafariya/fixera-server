@@ -539,7 +539,10 @@ export const createBooking = async (req: Request, res: Response, next: NextFunct
         }
 
         if (normalizedExtraOptionIndexes.length > 0) {
-          bookingData.selectedExtraOptions = normalizedExtraOptionIndexes;
+          bookingData.selectedExtraOptions = normalizedExtraOptionIndexes.map((idx: number) => {
+            const opt = project.extraOptions[idx];
+            return { extraOptionId: (opt as any)._id.toString(), bookedPrice: opt.price };
+          });
         }
 
         bookingData.quote = {

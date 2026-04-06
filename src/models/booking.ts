@@ -133,7 +133,7 @@ export interface IBooking extends Document {
   customerRejectionReason?: string;
   milestonePayments?: IBookingMilestone[];
   selectedSubprojectIndex?: number;
-  selectedExtraOptions?: number[];
+  selectedExtraOptions?: { extraOptionId: string; bookedPrice: number }[];
 
   // Booking location (customer's location from their profile)
   location: {
@@ -556,12 +556,8 @@ const BookingSchema = new Schema({
     },
   },
   selectedExtraOptions: [{
-    type: Number,
-    min: 0,
-    validate: {
-      validator: Number.isInteger,
-      message: 'selectedExtraOptions entries must be integers',
-    },
+    extraOptionId: { type: String, required: true },
+    bookedPrice: { type: Number, required: true, min: 0 },
   }],
 
   // Location

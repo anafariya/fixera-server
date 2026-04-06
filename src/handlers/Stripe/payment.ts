@@ -169,22 +169,13 @@ export const createPaymentIntent = async (
     }
     const customer = booking.customer as any;
     const projectInfo = booking.project as any;
-    const normalizedSelectedExtraOptions = Array.isArray(booking.selectedExtraOptions) && Array.isArray(projectInfo?.extraOptions)
-      ? Array.from(
-          new Set(
-            booking.selectedExtraOptions.filter(
-              (optionIndex: number) =>
-                Number.isInteger(optionIndex) &&
-                optionIndex >= 0 &&
-                optionIndex < projectInfo.extraOptions.length
-            )
-          )
+    const selectedExtraOptionsTotal = Array.isArray(booking.selectedExtraOptions)
+      ? booking.selectedExtraOptions.reduce(
+          (sum: number, entry: any) =>
+            typeof entry?.bookedPrice === 'number' ? sum + entry.bookedPrice : sum,
+          0
         )
-      : [];
-    const selectedExtraOptionsTotal = normalizedSelectedExtraOptions.reduce(
-      (sum: number, optionIndex: number) => sum + (projectInfo?.extraOptions?.[optionIndex]?.price || 0),
-      0
-    );
+      : 0;
 
     // Check if professional has Stripe connected
     if (!professional.stripe?.accountId) {
