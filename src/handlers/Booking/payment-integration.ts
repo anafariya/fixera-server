@@ -24,6 +24,10 @@ import {
   getBookingWarrantyDuration,
   normalizeWarrantyDuration,
 } from '../../utils/warranty';
+import {
+  resolveSubprojectIndex,
+  normalizeExtraOptions,
+} from '../../utils/bookingHelpers';
 
 const BOOKING_STATUS_VALUES: BookingStatus[] = [
   'rfq',
@@ -57,76 +61,14 @@ const ALLOWED_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   refunded: [],
 };
 
-const resolveBookingSubprojectIndex = (projectDoc: any, requestedIndex: unknown) => {
-  const subprojects = Array.isArray(projectDoc?.subprojects)
-    ? projectDoc.subprojects
-    : [];
-
-  const parsedRequestedIndex =
-    typeof requestedIndex === 'number'
-      ? requestedIndex
-      : typeof requestedIndex === 'string'
-      ? Number.parseInt(requestedIndex, 10)
-      : Number.NaN;
-
-  if (
-    Number.isInteger(parsedRequestedIndex) &&
-    parsedRequestedIndex >= 0 &&
-    parsedRequestedIndex < subprojects.length
-  ) {
-    return parsedRequestedIndex;
-  }
-
-  if (subprojects.length === 1) {
-    return 0;
-  }
-
-  const rfqIndexes = subprojects.reduce((indexes: number[], subproject: any, index: number) => {
-    if (subproject?.pricing?.type === 'rfq') {
-      indexes.push(index);
-    }
-    return indexes;
-  }, []);
-
-  if (rfqIndexes.length === 1) {
-    return rfqIndexes[0];
-  }
-
-  return undefined;
-};
+const resolveBookingSubprojectIndex = (projectDoc: any, requestedIndex: unknown) =>
+  resolveSubprojectIndex(projectDoc?.subprojects, requestedIndex);
 
 const normalizeSelectedExtraOptions = (
   extraOptions: unknown,
   projectDoc: any
-): { extraOptionId: string; bookedPrice: number }[] => {
-  if (!Array.isArray(extraOptions) || !Array.isArray(projectDoc?.extraOptions)) {
-    return [];
-  }
-
-  const indexes = Array.from(
-    new Set(
-      extraOptions
-        .map((value: unknown) =>
-          typeof value === 'number'
-            ? value
-            : typeof value === 'string'
-            ? Number.parseInt(value, 10)
-            : Number.NaN
-        )
-        .filter(
-          (index: number) =>
-            Number.isInteger(index) &&
-            index >= 0 &&
-            index < projectDoc.extraOptions.length
-        )
-    )
-  );
-
-  return indexes.map((idx) => {
-    const opt = projectDoc.extraOptions[idx];
-    return { extraOptionId: opt._id.toString(), bookedPrice: opt.price };
-  });
-};
+): { extraOptionId: string; bookedPrice: number }[] =>
+  normalizeExtraOptions(extraOptions, projectDoc?.extraOptions);
 
 const isValidBookingStatus = (value: string): value is BookingStatus =>
   BOOKING_STATUS_VALUES.includes(value as BookingStatus);
@@ -818,8 +760,7 @@ export const setBookingSchedule = async (req: Request, res: Response) => {
         });
       }
 
-      const isRfqSubproject = typeof resolvedSubprojectIndex === 'number'
-        && Array.isArray(projectDoc.subprojects)
+      const isRfqSubproject = Array.isArray(projectDoc.subprojects)
         && projectDoc.subprojects[resolvedSubprojectIndex]?.pricing?.type === 'rfq';
 
       if (isRfqSubproject) {

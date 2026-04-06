@@ -515,22 +515,34 @@ export const confirmPayment = async (req: Request, res: Response) => {
       // Payment charged successfully — funds in Fixera's Stripe account
       console.log(`[PAYMENT CONFIRM] PaymentIntent status is succeeded, updating booking`);
 
-      booking.payment!.status = 'authorized';
-      booking.payment!.authorizedAt = new Date();
-      booking.payment!.capturedAt = new Date();
+      const now = new Date();
+      const msIdx = booking.payment!.milestoneIndex;
+      const updateFields: Record<string, any> = {
+        'payment.status': 'authorized',
+        'payment.authorizedAt': now,
+        'payment.capturedAt': now,
+        status: 'booked',
+      };
       if (paymentIntent.latest_charge) {
-        booking.payment!.stripeChargeId = paymentIntent.latest_charge as string;
+        updateFields['payment.stripeChargeId'] = paymentIntent.latest_charge as string;
       }
-      if (typeof booking.payment!.milestoneIndex === 'number' && Array.isArray(booking.milestonePayments)) {
-        const ms = booking.milestonePayments[booking.payment!.milestoneIndex];
-        if (ms && ms.status !== 'paid') {
-          ms.status = 'paid';
-          ms.paidAt = new Date();
-        }
+      if (typeof msIdx === 'number' && Array.isArray(booking.milestonePayments) && booking.milestonePayments[msIdx]) {
+        updateFields[`milestonePayments.${msIdx}.status`] = 'paid';
+        updateFields[`milestonePayments.${msIdx}.paidAt`] = now;
       }
-      booking.status = 'booked';
 
-      await booking.save();
+      const milestoneFilter: Record<string, any> = { _id: booking._id };
+      if (typeof msIdx === 'number') {
+        milestoneFilter[`milestonePayments.${msIdx}.status`] = { $ne: 'paid' };
+      }
+
+      await Booking.findOneAndUpdate(milestoneFilter, { $set: updateFields });
+      const refreshed = await Booking.findById(booking._id);
+      if (refreshed) {
+        booking.payment = refreshed.payment;
+        booking.status = refreshed.status;
+        booking.milestonePayments = refreshed.milestonePayments;
+      }
 
       await Payment.findOneAndUpdate(
         { booking: booking._id },

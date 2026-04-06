@@ -9,6 +9,7 @@ import {
   validateProjectScheduleSelection,
 } from "../../utils/scheduleEngine";
 import { presignS3Url, uploadToS3, generateFileName } from "../../utils/s3Upload";
+import { resolveSubprojectIndex } from "../../utils/bookingHelpers";
 
 const presignMaybeS3Url = async (url?: string | null) => {
   if (!url) return url;
@@ -290,34 +291,13 @@ export const createBooking = async (req: Request, res: Response, next: NextFunct
               })()
           : undefined;
 
-      const parsedSubprojectIndex =
-        typeof selectedSubprojectIndex === "number"
-          ? selectedSubprojectIndex
-          : typeof selectedSubprojectIndex === "string"
-          ? Number.parseInt(selectedSubprojectIndex, 10)
-          : undefined;
-      const explicitIndex =
-        typeof parsedSubprojectIndex === "number" &&
-        !Number.isNaN(parsedSubprojectIndex)
-          ? parsedSubprojectIndex
-          : undefined;
-
-      let effectiveSubprojectIndex: number | undefined = explicitIndex;
-      if (typeof effectiveSubprojectIndex !== "number" && Array.isArray(project.subprojects)) {
-        if (project.subprojects.length === 1) {
-          effectiveSubprojectIndex = 0;
-        } else {
-          const rfqIndexes = project.subprojects
-            .map((sp: any, i: number) => (sp?.pricing?.type === "rfq" ? i : -1))
-            .filter((i: number) => i >= 0);
-          if (rfqIndexes.length === 1) {
-            effectiveSubprojectIndex = rfqIndexes[0];
-          }
-        }
-      }
+      const subprojectIndex = resolveSubprojectIndex(
+        project.subprojects,
+        selectedSubprojectIndex
+      );
 
       if (
-        typeof effectiveSubprojectIndex !== 'number' &&
+        typeof subprojectIndex !== 'number' &&
         Array.isArray(project.subprojects) &&
         project.subprojects.length > 1
       ) {
@@ -326,8 +306,6 @@ export const createBooking = async (req: Request, res: Response, next: NextFunct
           msg: 'Please select a subproject/package before booking',
         });
       }
-
-      const subprojectIndex = effectiveSubprojectIndex;
 
       const isRfqSubproject =
         typeof subprojectIndex === "number" &&
