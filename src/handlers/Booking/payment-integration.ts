@@ -874,9 +874,7 @@ export const setBookingSchedule = async (req: Request, res: Response) => {
           booking.assignedTeamMembers = window.assignedTeamMembers as any;
         }
       }
-      if (typeof resolvedSubprojectIndex === 'number') {
-        booking.selectedSubprojectIndex = resolvedSubprojectIndex;
-      }
+      booking.selectedSubprojectIndex = resolvedSubprojectIndex;
       if (hasExplicitExtraOptions) {
         booking.selectedExtraOptions = normalizeSelectedExtraOptions(selectedExtraOptions, projectDoc);
       }

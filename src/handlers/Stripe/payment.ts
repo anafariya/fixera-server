@@ -256,6 +256,8 @@ export const createPaymentIntent = async (
         if (milestoneOrder === minOrder) {
           chargeAmount += selectedExtraOptionsTotal;
         }
+      } else {
+        chargeAmount += selectedExtraOptionsTotal;
       }
     }
 
