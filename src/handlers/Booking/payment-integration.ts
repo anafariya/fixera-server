@@ -38,6 +38,7 @@ const BOOKING_STATUS_VALUES: BookingStatus[] = [
   'quote_rejected',
   'payment_pending',
   'booked',
+  'rescheduling_requested',
   'in_progress',
   'professional_completed',
   'completed',
@@ -55,6 +56,7 @@ const ALLOWED_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   quote_rejected: ['quoted'],
   payment_pending: ['booked', 'cancelled'],
   booked: ['in_progress', 'completed', 'cancelled', 'dispute'],
+  rescheduling_requested: [],
   in_progress: ['professional_completed', 'cancelled', 'dispute'],
   professional_completed: ['completed', 'dispute', 'cancelled'],
   completed: [],
@@ -134,11 +136,211 @@ const isDuplicateKeyError = (error: any): boolean => error?.code === 11000;
 const COMPLETABLE_BOOKING_STATUSES: BookingStatus[] = ['booked', 'in_progress', 'professional_completed', 'dispute'];
 
 const getProfessionalId = async (booking: any) => {
-  if (booking.professional) return booking.professional;
+  if (booking.professional) {
+    return booking.professional?._id?.toString?.() || booking.professional?.toString?.();
+  }
   if (!booking.project) return undefined;
 
   const project = await Project.findById(booking.project).select('professionalId');
-  return project?.professionalId;
+  return project?.professionalId?.toString?.() || project?.professionalId;
+};
+
+const createStatusHistoryEntry = (
+  status: BookingStatus,
+  updatedBy: any,
+  note: string
+) => ({
+  status,
+  timestamp: new Date(),
+  updatedBy,
+  note,
+});
+
+const MAX_STATUS_HISTORY_NOTE_LENGTH = 500;
+const MAX_RESCHEDULE_REASON_LENGTH = 500;
+
+const normalizeOptionalText = (value: unknown) => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+};
+
+const truncateStatusHistoryNote = (note: string) => {
+  const normalized = note.trim();
+  if (normalized.length <= MAX_STATUS_HISTORY_NOTE_LENGTH) return normalized;
+  return `${normalized.slice(0, MAX_STATUS_HISTORY_NOTE_LENGTH - 1).trimEnd()}…`;
+};
+
+const snapshotCurrentSchedule = (booking: any) => ({
+  scheduledStartDate: booking.scheduledStartDate,
+  scheduledExecutionEndDate: booking.scheduledExecutionEndDate,
+  scheduledBufferStartDate: booking.scheduledBufferStartDate,
+  scheduledBufferEndDate: booking.scheduledBufferEndDate,
+  scheduledBufferUnit: booking.scheduledBufferUnit,
+  scheduledStartTime: booking.scheduledStartTime,
+  scheduledEndTime: booking.scheduledEndTime,
+  assignedTeamMembers: Array.isArray(booking.assignedTeamMembers) ? booking.assignedTeamMembers : undefined,
+});
+
+const applyScheduleFields = (booking: any, schedule: Record<string, any>) => {
+  booking.scheduledStartDate = schedule.scheduledStartDate;
+  booking.scheduledExecutionEndDate = schedule.scheduledExecutionEndDate;
+  booking.scheduledBufferStartDate = schedule.scheduledBufferStartDate;
+  booking.scheduledBufferEndDate = schedule.scheduledBufferEndDate;
+  booking.scheduledBufferUnit = schedule.scheduledBufferUnit;
+  booking.scheduledStartTime = schedule.scheduledStartTime;
+  booking.scheduledEndTime = schedule.scheduledEndTime;
+  if (Array.isArray(schedule.assignedTeamMembers) && schedule.assignedTeamMembers.length > 0) {
+    booking.assignedTeamMembers = schedule.assignedTeamMembers as any;
+  }
+};
+
+const buildScheduleUpdatePayload = async ({
+  booking,
+  scheduledStartDate,
+  scheduledStartTime,
+  hasExplicitExtraOptions = false,
+  selectedExtraOptions,
+}: {
+  booking: any;
+  scheduledStartDate: string;
+  scheduledStartTime?: string;
+  hasExplicitExtraOptions?: boolean;
+  selectedExtraOptions?: unknown;
+}): Promise<
+  | { success: true; data: Record<string, any> }
+  | { success: false; status: number; error: { code: string; message: string } }
+> => {
+  if (booking.project) {
+    const projectId = (booking.project as any)?._id?.toString?.() || String(booking.project);
+    const projectDoc = await Project.findById(projectId).select('subprojects extraOptions');
+    if (!projectDoc) {
+      return {
+        success: false,
+        status: 404,
+        error: { code: 'PROJECT_NOT_FOUND', message: 'Linked project not found' },
+      };
+    }
+
+    const resolvedSubprojectIndex = resolveBookingSubprojectIndex(
+      projectDoc,
+      booking.selectedSubprojectIndex
+    );
+
+    if (typeof resolvedSubprojectIndex !== 'number') {
+      return {
+        success: false,
+        status: 400,
+        error: { code: 'MUST_SELECT_SUBPROJECT', message: 'Please select a subproject/package before scheduling' },
+      };
+    }
+
+    const isRfqSubproject = Array.isArray(projectDoc.subprojects)
+      && projectDoc.subprojects[resolvedSubprojectIndex]?.pricing?.type === 'rfq';
+
+    const scheduleData: Record<string, any> = {
+      selectedSubprojectIndex: resolvedSubprojectIndex,
+    };
+
+    if (isRfqSubproject) {
+      const startDate = new Date(scheduledStartDate);
+      if (isNaN(startDate.getTime()) || startDate < new Date()) {
+        return {
+          success: false,
+          status: 400,
+          error: { code: 'INVALID_DATE', message: 'Start date must be a valid future date' },
+        };
+      }
+
+      scheduleData.scheduledStartDate = startDate;
+      scheduleData.scheduledExecutionEndDate = undefined;
+      scheduleData.scheduledBufferStartDate = undefined;
+      scheduleData.scheduledBufferEndDate = undefined;
+      scheduleData.scheduledBufferUnit = undefined;
+      scheduleData.scheduledStartTime = typeof scheduledStartTime === 'string' ? scheduledStartTime : undefined;
+      scheduleData.scheduledEndTime = undefined;
+      if (Array.isArray(booking.assignedTeamMembers) && booking.assignedTeamMembers.length > 0) {
+        scheduleData.assignedTeamMembers = booking.assignedTeamMembers;
+      }
+    } else {
+      const validation = await validateProjectScheduleSelection({
+        projectId,
+        subprojectIndex: resolvedSubprojectIndex,
+        startDate: scheduledStartDate,
+        startTime: typeof scheduledStartTime === 'string' ? scheduledStartTime : undefined,
+        customerBlocks: booking.customerBlocks,
+      });
+
+      if (!validation.valid) {
+        return {
+          success: false,
+          status: 400,
+          error: {
+            code: 'INVALID_DATE',
+            message: validation.reason || 'Selected schedule is not available',
+          },
+        };
+      }
+
+      const window = await buildProjectScheduleWindow({
+        projectId,
+        subprojectIndex: resolvedSubprojectIndex,
+        startDate: scheduledStartDate,
+        startTime: typeof scheduledStartTime === 'string' ? scheduledStartTime : undefined,
+        customerBlocks: booking.customerBlocks,
+      });
+
+      if (!window) {
+        return {
+          success: false,
+          status: 400,
+          error: { code: 'INVALID_DATE', message: 'Unable to schedule the selected window' },
+        };
+      }
+
+      scheduleData.scheduledStartDate = window.scheduledStartDate;
+      scheduleData.scheduledExecutionEndDate = window.scheduledExecutionEndDate;
+      scheduleData.scheduledBufferStartDate = window.scheduledBufferStartDate;
+      scheduleData.scheduledBufferEndDate = window.scheduledBufferEndDate;
+      scheduleData.scheduledBufferUnit = window.scheduledBufferUnit;
+      scheduleData.scheduledStartTime = window.scheduledStartTime;
+      scheduleData.scheduledEndTime = window.scheduledEndTime;
+      if (window.assignedTeamMembers?.length) {
+        scheduleData.assignedTeamMembers = window.assignedTeamMembers;
+      } else if (Array.isArray(booking.assignedTeamMembers) && booking.assignedTeamMembers.length > 0) {
+        scheduleData.assignedTeamMembers = booking.assignedTeamMembers;
+      }
+    }
+
+    if (hasExplicitExtraOptions) {
+      scheduleData.selectedExtraOptions = normalizeSelectedExtraOptions(selectedExtraOptions, projectDoc);
+    }
+
+    return { success: true, data: scheduleData };
+  }
+
+  const startDate = new Date(scheduledStartDate);
+  if (isNaN(startDate.getTime()) || startDate < new Date()) {
+    return {
+      success: false,
+      status: 400,
+      error: { code: 'INVALID_DATE', message: 'Start date must be a valid future date' },
+    };
+  }
+
+  return {
+    success: true,
+    data: {
+      scheduledStartDate: startDate,
+      scheduledExecutionEndDate: booking.scheduledExecutionEndDate,
+      scheduledBufferStartDate: booking.scheduledBufferStartDate,
+      scheduledBufferEndDate: booking.scheduledBufferEndDate,
+      scheduledBufferUnit: booking.scheduledBufferUnit,
+      scheduledStartTime: typeof scheduledStartTime === 'string' ? scheduledStartTime : undefined,
+      scheduledEndTime: booking.scheduledEndTime,
+      assignedTeamMembers: Array.isArray(booking.assignedTeamMembers) ? booking.assignedTeamMembers : undefined,
+    },
+  };
 };
 
 const refundCapturedBookingOnConflict = async (
@@ -403,6 +605,16 @@ export const updateBookingStatusWithPayment = async (req: Request, res: Response
       });
     }
 
+    if (requestedStatus === 'rescheduling_requested') {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_STATUS',
+          message: 'Use the dedicated reschedule flow to request rescheduling'
+        }
+      });
+    }
+
     if (!isTransitionAllowed(booking.status as BookingStatus, requestedStatus)) {
       return res.status(400).json({
         success: false,
@@ -578,11 +790,18 @@ export const updateBookingStatusWithPayment = async (req: Request, res: Response
     }
 
     // For other status updates, update normally after validation.
+    const previousStatus = booking.status as BookingStatus;
     booking.status = requestedStatus;
 
     // Set timestamps based on status
     if (requestedStatus === 'in_progress' && !booking.actualStartDate) {
       booking.actualStartDate = new Date();
+    }
+    if (requestedStatus !== previousStatus) {
+      booking.statusHistory = booking.statusHistory || [];
+      booking.statusHistory.push(
+        createStatusHistoryEntry(requestedStatus, authUser?._id, `Status changed from ${previousStatus} to ${requestedStatus}`)
+      );
     }
 
     await booking.save();
@@ -743,91 +962,24 @@ export const setBookingSchedule = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: { code: 'INVALID_STATUS', message: 'Schedule can only be set for accepted quotes' } });
     }
 
-    if (booking.project) {
-      const projectId = (booking.project as any)?._id?.toString?.() || String(booking.project);
-      const projectDoc = await Project.findById(projectId).select('subprojects extraOptions');
-      if (!projectDoc) {
-        return res.status(404).json({ success: false, error: { code: 'PROJECT_NOT_FOUND', message: 'Linked project not found' } });
-      }
+    const scheduleUpdate = await buildScheduleUpdatePayload({
+      booking,
+      scheduledStartDate,
+      scheduledStartTime: typeof scheduledStartTime === 'string' ? scheduledStartTime : undefined,
+      hasExplicitExtraOptions,
+      selectedExtraOptions,
+    });
 
-      const resolvedSubprojectIndex = resolveBookingSubprojectIndex(
-        projectDoc,
-        booking.selectedSubprojectIndex
-      );
+    if (!scheduleUpdate.success) {
+      return res.status(scheduleUpdate.status).json({ success: false, error: scheduleUpdate.error });
+    }
 
-      if (typeof resolvedSubprojectIndex !== 'number') {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'MUST_SELECT_SUBPROJECT', message: 'Please select a subproject/package before scheduling' }
-        });
-      }
-
-      const isRfqSubproject = Array.isArray(projectDoc.subprojects)
-        && projectDoc.subprojects[resolvedSubprojectIndex]?.pricing?.type === 'rfq';
-
-      if (isRfqSubproject) {
-        const startDate = new Date(scheduledStartDate);
-        if (isNaN(startDate.getTime()) || startDate < new Date()) {
-          return res.status(400).json({ success: false, error: { code: 'INVALID_DATE', message: 'Start date must be a valid future date' } });
-        }
-        booking.scheduledStartDate = startDate;
-        booking.scheduledStartTime = typeof scheduledStartTime === 'string' ? scheduledStartTime : undefined;
-      } else {
-        const validation = await validateProjectScheduleSelection({
-          projectId,
-          subprojectIndex: resolvedSubprojectIndex,
-          startDate: scheduledStartDate,
-          startTime: typeof scheduledStartTime === 'string' ? scheduledStartTime : undefined,
-          customerBlocks: booking.customerBlocks,
-        });
-
-        if (!validation.valid) {
-          return res.status(400).json({
-            success: false,
-            error: {
-              code: 'INVALID_DATE',
-              message: validation.reason || 'Selected schedule is not available',
-            },
-          });
-        }
-
-        const window = await buildProjectScheduleWindow({
-          projectId,
-          subprojectIndex: resolvedSubprojectIndex,
-          startDate: scheduledStartDate,
-          startTime: typeof scheduledStartTime === 'string' ? scheduledStartTime : undefined,
-          customerBlocks: booking.customerBlocks,
-        });
-
-        if (!window) {
-          return res.status(400).json({
-            success: false,
-            error: { code: 'INVALID_DATE', message: 'Unable to schedule the selected window' },
-          });
-        }
-
-        booking.scheduledStartDate = window.scheduledStartDate;
-        booking.scheduledExecutionEndDate = window.scheduledExecutionEndDate;
-        booking.scheduledBufferStartDate = window.scheduledBufferStartDate;
-        booking.scheduledBufferEndDate = window.scheduledBufferEndDate;
-        booking.scheduledBufferUnit = window.scheduledBufferUnit;
-        booking.scheduledStartTime = window.scheduledStartTime;
-        booking.scheduledEndTime = window.scheduledEndTime;
-        if (window.assignedTeamMembers?.length) {
-          booking.assignedTeamMembers = window.assignedTeamMembers as any;
-        }
-      }
-      booking.selectedSubprojectIndex = resolvedSubprojectIndex;
-      if (hasExplicitExtraOptions) {
-        booking.selectedExtraOptions = normalizeSelectedExtraOptions(selectedExtraOptions, projectDoc);
-      }
-    } else {
-      const startDate = new Date(scheduledStartDate);
-      if (isNaN(startDate.getTime()) || startDate < new Date()) {
-        return res.status(400).json({ success: false, error: { code: 'INVALID_DATE', message: 'Start date must be a valid future date' } });
-      }
-      booking.scheduledStartDate = startDate;
-      booking.scheduledStartTime = typeof scheduledStartTime === 'string' ? scheduledStartTime : undefined;
+    applyScheduleFields(booking, scheduleUpdate.data);
+    if (typeof scheduleUpdate.data.selectedSubprojectIndex === 'number') {
+      booking.selectedSubprojectIndex = scheduleUpdate.data.selectedSubprojectIndex;
+    }
+    if (hasExplicitExtraOptions) {
+      booking.selectedExtraOptions = scheduleUpdate.data.selectedExtraOptions;
     }
 
     if (additionalNotes) {
@@ -844,5 +996,251 @@ export const setBookingSchedule = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Error setting booking schedule:', error);
     res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to set schedule' } });
+  }
+};
+
+export const requestBookingReschedule = async (req: Request, res: Response) => {
+  try {
+    const { bookingId } = req.params;
+    const userId = (req as any).user?._id?.toString();
+    const { scheduledStartDate, scheduledStartTime, reason, note } = req.body;
+    const normalizedReason = typeof reason === 'string' ? reason.trim() : '';
+    const normalizedNote = normalizeOptionalText(note);
+
+    if (!userId) {
+      return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    }
+
+    if (!scheduledStartDate || typeof scheduledStartDate !== 'string') {
+      return res.status(400).json({ success: false, error: { code: 'MISSING_DATE', message: 'A proposed start date is required' } });
+    }
+
+    if (!normalizedReason || normalizedReason.length < 3 || normalizedReason.length > MAX_RESCHEDULE_REASON_LENGTH) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'MISSING_REASON',
+          message: `A rescheduling reason between 3 and ${MAX_RESCHEDULE_REASON_LENGTH} characters is required`
+        }
+      });
+    }
+
+    const booking = await Booking.findById(bookingId)
+      .populate('customer', 'name email phone customerType location')
+      .populate('professional', 'name email username businessInfo')
+      .populate('project', 'title description pricing category service professionalId extraOptions postBookingQuestions');
+
+    if (!booking) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } });
+    }
+
+    const professionalId = await getProfessionalId(booking);
+    if (professionalId !== userId) {
+      return res.status(403).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Only the assigned professional can request rescheduling' } });
+    }
+
+    if (booking.status !== 'booked') {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_STATUS', message: 'Rescheduling can only be requested for booked work' } });
+    }
+
+    const proposedSchedule = await buildScheduleUpdatePayload({
+      booking,
+      scheduledStartDate,
+      scheduledStartTime: typeof scheduledStartTime === 'string' ? scheduledStartTime : undefined,
+    });
+
+    if (!proposedSchedule.success) {
+      return res.status(proposedSchedule.status).json({ success: false, error: proposedSchedule.error });
+    }
+
+    booking.status = 'rescheduling_requested';
+    booking.rescheduleRequest = {
+      status: 'pending',
+      requestedBy: (req as any).user._id,
+      requestedAt: new Date(),
+      reason: normalizedReason,
+      note: normalizedNote,
+      previousSchedule: snapshotCurrentSchedule(booking),
+      proposedSchedule: {
+        scheduledStartDate: proposedSchedule.data.scheduledStartDate,
+        scheduledExecutionEndDate: proposedSchedule.data.scheduledExecutionEndDate,
+        scheduledBufferStartDate: proposedSchedule.data.scheduledBufferStartDate,
+        scheduledBufferEndDate: proposedSchedule.data.scheduledBufferEndDate,
+        scheduledBufferUnit: proposedSchedule.data.scheduledBufferUnit,
+        scheduledStartTime: proposedSchedule.data.scheduledStartTime,
+        scheduledEndTime: proposedSchedule.data.scheduledEndTime,
+        assignedTeamMembers: proposedSchedule.data.assignedTeamMembers,
+      },
+    } as any;
+    booking.statusHistory = booking.statusHistory || [];
+    booking.statusHistory.push(
+      createStatusHistoryEntry(
+        'rescheduling_requested',
+        (req as any).user._id,
+        truncateStatusHistoryNote(`Professional requested rescheduling: ${normalizedReason}`)
+      )
+    );
+
+    await booking.save();
+
+    return res.json({
+      success: true,
+      data: { message: 'Rescheduling request submitted', booking },
+    });
+  } catch (error: any) {
+    console.error('Error requesting booking reschedule:', error);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to request rescheduling' } });
+  }
+};
+
+export const respondToBookingReschedule = async (req: Request, res: Response) => {
+  try {
+    const { bookingId } = req.params;
+    const userId = (req as any).user?._id?.toString();
+    const { action, note } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    }
+
+    if (action !== 'accept' && action !== 'decline') {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_ACTION', message: 'Action must be accept or decline' } });
+    }
+
+    const booking = await Booking.findById(bookingId)
+      .populate('customer', 'name email phone customerType location')
+      .populate('professional', 'name email username businessInfo')
+      .populate('project', 'title description pricing category service professionalId extraOptions postBookingQuestions');
+
+    if (!booking) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } });
+    }
+
+    if (booking.customer?._id?.toString?.() !== userId && booking.customer?.toString?.() !== userId) {
+      return res.status(403).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Only the customer can respond to a rescheduling request' } });
+    }
+
+    if (booking.status !== 'rescheduling_requested' || booking.rescheduleRequest?.status !== 'pending') {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_STATUS', message: 'There is no pending rescheduling request for this booking' } });
+    }
+
+    booking.rescheduleRequest.respondedAt = new Date();
+    booking.rescheduleRequest.respondedBy = (req as any).user._id;
+    booking.rescheduleRequest.responseNote = typeof note === 'string' ? note.trim() : undefined;
+    booking.statusHistory = booking.statusHistory || [];
+
+    if (action === 'accept') {
+      booking.rescheduleRequest.status = 'accepted';
+      applyScheduleFields(booking, booking.rescheduleRequest.proposedSchedule || {});
+      booking.status = 'booked';
+      booking.statusHistory.push(
+        createStatusHistoryEntry('booked', (req as any).user._id, 'Customer accepted the rescheduling request')
+      );
+    } else {
+      booking.rescheduleRequest.status = 'declined';
+      booking.cancellation = {
+        cancelledBy: (req as any).user._id,
+        reason: typeof note === 'string' && note.trim()
+          ? `Customer declined rescheduling request: ${note.trim()}`
+          : 'Customer declined rescheduling request',
+        cancelledAt: new Date(),
+      } as any;
+      booking.status = 'cancelled';
+      booking.statusHistory.push(
+        createStatusHistoryEntry('cancelled', (req as any).user._id, 'Customer declined the rescheduling request')
+      );
+    }
+
+    await booking.save();
+
+    return res.json({
+      success: true,
+      data: {
+        message: action === 'accept' ? 'Rescheduling request accepted' : 'Rescheduling request declined',
+        booking,
+      },
+    });
+  } catch (error: any) {
+    console.error('Error responding to booking reschedule:', error);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to respond to rescheduling request' } });
+  }
+};
+
+export const extendBookingExecution = async (req: Request, res: Response) => {
+  try {
+    const { bookingId } = req.params;
+    const userId = (req as any).user?._id?.toString();
+    const { newExecutionEndDate, note } = req.body;
+    const normalizedNote = normalizeOptionalText(note);
+
+    if (!userId) {
+      return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    }
+
+    if (!newExecutionEndDate || typeof newExecutionEndDate !== 'string') {
+      return res.status(400).json({ success: false, error: { code: 'MISSING_DATE', message: 'A new execution end date is required' } });
+    }
+
+    const booking = await Booking.findById(bookingId)
+      .populate('customer', 'name email phone customerType location')
+      .populate('professional', 'name email username businessInfo')
+      .populate('project', 'title description pricing category service professionalId extraOptions postBookingQuestions');
+
+    if (!booking) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } });
+    }
+
+    const professionalId = await getProfessionalId(booking);
+    if (professionalId !== userId) {
+      return res.status(403).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Only the assigned professional can extend execution' } });
+    }
+
+    if (booking.status !== 'in_progress') {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_STATUS', message: 'Execution can only be extended while work is in progress' } });
+    }
+
+    const nextExecutionEndDate = new Date(newExecutionEndDate);
+    if (isNaN(nextExecutionEndDate.getTime())) {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_DATE', message: 'Provide a valid execution end date' } });
+    }
+
+    const currentExecutionEndDate = booking.scheduledExecutionEndDate || booking.scheduledStartDate;
+    if (!currentExecutionEndDate || nextExecutionEndDate <= currentExecutionEndDate) {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_DATE', message: 'The new execution end date must be later than the current schedule' } });
+    }
+
+    const extensionMs = nextExecutionEndDate.getTime() - currentExecutionEndDate.getTime();
+    booking.scheduledExecutionEndDate = nextExecutionEndDate;
+
+    if (booking.scheduledBufferStartDate) {
+      booking.scheduledBufferStartDate = new Date(booking.scheduledBufferStartDate.getTime() + extensionMs);
+    } else if (booking.scheduledBufferEndDate) {
+      booking.scheduledBufferStartDate = nextExecutionEndDate;
+    }
+
+    if (booking.scheduledBufferEndDate) {
+      booking.scheduledBufferEndDate = new Date(booking.scheduledBufferEndDate.getTime() + extensionMs);
+    }
+
+    booking.statusHistory = booking.statusHistory || [];
+    booking.statusHistory.push(
+      createStatusHistoryEntry(
+        'in_progress',
+        (req as any).user._id,
+        normalizedNote
+          ? truncateStatusHistoryNote(`Execution extended: ${normalizedNote}`)
+          : truncateStatusHistoryNote(`Execution end date moved to ${nextExecutionEndDate.toISOString()}`)
+      )
+    );
+
+    await booking.save();
+
+    return res.json({
+      success: true,
+      data: { message: 'Execution extended successfully', booking },
+    });
+  } catch (error: any) {
+    console.error('Error extending booking execution:', error);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to extend execution' } });
   }
 };

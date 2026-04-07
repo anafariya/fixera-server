@@ -10,7 +10,15 @@ import {
   cancelBooking,
   uploadRFQAttachment,
 } from '../../handlers/Booking';
-import { respondToQuoteWithPayment, ensurePaymentIntent, updateBookingStatusWithPayment, setBookingSchedule } from '../../handlers/Booking/payment-integration';
+import {
+  respondToQuoteWithPayment,
+  ensurePaymentIntent,
+  updateBookingStatusWithPayment,
+  setBookingSchedule,
+  requestBookingReschedule,
+  respondToBookingReschedule,
+  extendBookingExecution,
+} from '../../handlers/Booking/payment-integration';
 import { getDiscountPreview } from '../../handlers/Booking/discountPreview';
 import { submitCustomerReview, submitProfessionalReview, replyToCustomerReview } from '../../handlers/Booking/reviews';
 import {
@@ -55,6 +63,9 @@ router.get('/:bookingId/discount-preview', getDiscountPreview);
 router.post('/:bookingId/respond', respondToQuoteWithPayment);
 router.post('/:bookingId/payment-intent', ensurePaymentIntent);
 router.post('/:bookingId/schedule', setBookingSchedule);
+router.post('/:bookingId/reschedule-request', requestBookingReschedule);
+router.post('/:bookingId/respond-reschedule', respondToBookingReschedule);
+router.post('/:bookingId/extend-execution', extendBookingExecution);
 
 // Update booking status (with automatic payment transfer on completion)
 router.put('/:bookingId/status', updateBookingStatusWithPayment);

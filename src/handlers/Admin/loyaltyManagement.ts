@@ -5,6 +5,8 @@ import PointsConfig from "../../models/pointsConfig";
 import PointTransaction from "../../models/pointTransaction";
 import ProfessionalLevelConfig from "../../models/professionalLevelConfig";
 import Payment from "../../models/payment";
+import Booking from "../../models/booking";
+import Project from "../../models/project";
 import { calculateLoyaltyStatus } from "../../utils/loyaltySystem";
 import { addPoints, deductPoints } from "../../utils/pointsSystem";
 import { updateProfessionalLevel } from "../../utils/professionalLevelSystem";
@@ -503,10 +505,47 @@ export const listProfessionalManagement = async (req: Request, res: Response) =>
     const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
     const country = typeof req.query.country === "string" ? req.query.country.trim() : "";
     const levels = parseCsv(req.query.levels);
+    const customerName = typeof req.query.customerName === "string" ? req.query.customerName.trim() : "";
     const tags = parseCsv(req.query.tags);
     const statuses = parseCsv(req.query.statuses);
 
+    let customerNameProfessionalIds: string[] | null = null;
+    if (customerName) {
+      const nameRegex = new RegExp(escapeRegex(customerName), "i");
+      const matchingCustomers = await User.find({ role: "customer", name: nameRegex }).select("_id").lean();
+      const customerIds = matchingCustomers.map((c: any) => c._id);
+      if (customerIds.length > 0) {
+        const matchingBookings = await Booking.find({
+          customer: { $in: customerIds },
+          $or: [
+            { professional: { $exists: true, $ne: null } },
+            { project: { $exists: true, $ne: null } },
+          ],
+        }).select("professional project").lean();
+        const directProfessionalIds = matchingBookings
+          .filter((b: any) => b.professional)
+          .map((b: any) => String(b.professional));
+        const projectIds = [...new Set(
+          matchingBookings
+            .filter((b: any) => b.project)
+            .map((b: any) => String(b.project))
+        )];
+        const projectProfessionals = projectIds.length > 0
+          ? await Project.find({ _id: { $in: projectIds } }).select("professionalId").lean()
+          : [];
+        const projectProfessionalIds = projectProfessionals
+          .filter((project: any) => project.professionalId)
+          .map((project: any) => String(project.professionalId));
+        customerNameProfessionalIds = [...new Set([...directProfessionalIds, ...projectProfessionalIds])];
+      } else {
+        customerNameProfessionalIds = [];
+      }
+    }
+
     const query: Record<string, any> = { role: "professional", deletedAt: { $exists: false } };
+    if (customerNameProfessionalIds !== null) {
+      query._id = { $in: customerNameProfessionalIds.map((id) => new mongoose.Types.ObjectId(id)) };
+    }
     if (search) {
       const regex = new RegExp(escapeRegex(search), "i");
       query.$or = [
@@ -645,10 +684,21 @@ export const listCustomerManagement = async (req: Request, res: Response) => {
     const skip = (page - 1) * limit;
     const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
     const country = typeof req.query.country === "string" ? req.query.country.trim() : "";
+    const address = typeof req.query.address === "string" ? req.query.address.trim() : "";
     const levels = parseCsv(req.query.levels);
     const statuses = parseCsv(req.query.statuses);
 
+    let addressCustomerIds: string[] | null = null;
+    if (address) {
+      const addressRegex = new RegExp(escapeRegex(address), "i");
+      const matchingBookings = await Booking.find({ "location.address": addressRegex }).select("customer").lean();
+      addressCustomerIds = [...new Set(matchingBookings.map((b: any) => String(b.customer)))];
+    }
+
     const query: Record<string, any> = { role: "customer", deletedAt: { $exists: false } };
+    if (addressCustomerIds !== null) {
+      query._id = { $in: addressCustomerIds.map((id) => new mongoose.Types.ObjectId(id)) };
+    }
     const searchOr = search
       ? (() => {
           const regex = new RegExp(escapeRegex(search), "i");
