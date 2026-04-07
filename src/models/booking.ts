@@ -10,6 +10,7 @@ export type BookingStatus =
   | 'quote_rejected'// Customer rejected the quote
   | 'payment_pending' // Payment is being processed
   | 'booked'        // Payment successful, booking confirmed
+  | 'rescheduling_requested' // Professional proposed a new schedule, awaiting customer response
   | 'in_progress'   // Work has started
   | 'professional_completed' // Professional confirmed completion, awaiting customer confirmation
   | 'completed'     // Work finished and confirmed by customer
@@ -107,6 +108,16 @@ export interface ICompletionAttestation {
   confirmedBy: Types.ObjectId;
   attachments?: string[];
   notes?: string;
+}
+
+export interface IBookingScheduleSnapshot {
+  scheduledStartDate?: Date;
+  scheduledExecutionEndDate?: Date;
+  scheduledBufferStartDate?: Date;
+  scheduledBufferEndDate?: Date;
+  scheduledBufferUnit?: "hours" | "days";
+  scheduledStartTime?: string;
+  scheduledEndTime?: string;
 }
 
 export interface IBooking extends Document {
@@ -249,6 +260,18 @@ export interface IBooking extends Document {
   scheduledEndTime?: string;
   actualStartDate?: Date;
   actualEndDate?: Date;
+  rescheduleRequest?: {
+    status: 'pending' | 'accepted' | 'declined';
+    requestedBy: Types.ObjectId;
+    requestedAt: Date;
+    reason: string;
+    note?: string;
+    previousSchedule?: IBookingScheduleSnapshot;
+    proposedSchedule: IBookingScheduleSnapshot;
+    respondedAt?: Date;
+    respondedBy?: Types.ObjectId;
+    responseNote?: string;
+  };
   warrantyCoverage?: {
     duration: { value: number; unit: 'months' | 'years' };
     startsAt?: Date;
@@ -378,7 +401,7 @@ const BookingSchema = new Schema({
   // Status and lifecycle
   status: {
     type: String,
-    enum: ['rfq', 'rfq_accepted', 'draft_quote', 'quoted', 'quote_accepted', 'quote_rejected', 'payment_pending', 'booked', 'in_progress', 'professional_completed', 'completed', 'cancelled', 'dispute', 'refunded'],
+    enum: ['rfq', 'rfq_accepted', 'draft_quote', 'quoted', 'quote_accepted', 'quote_rejected', 'payment_pending', 'booked', 'rescheduling_requested', 'in_progress', 'professional_completed', 'completed', 'cancelled', 'dispute', 'refunded'],
     default: 'rfq',
     required: true,
     index: true
@@ -386,7 +409,7 @@ const BookingSchema = new Schema({
   statusHistory: [{
     status: {
       type: String,
-      enum: ['rfq', 'rfq_accepted', 'draft_quote', 'quoted', 'quote_accepted', 'quote_rejected', 'payment_pending', 'booked', 'in_progress', 'professional_completed', 'completed', 'cancelled', 'dispute', 'refunded'],
+      enum: ['rfq', 'rfq_accepted', 'draft_quote', 'quoted', 'quote_accepted', 'quote_rejected', 'payment_pending', 'booked', 'rescheduling_requested', 'in_progress', 'professional_completed', 'completed', 'cancelled', 'dispute', 'refunded'],
       required: true
     },
     timestamp: {
@@ -733,6 +756,43 @@ const BookingSchema = new Schema({
   },
   actualStartDate: { type: Date },
   actualEndDate: { type: Date },
+  rescheduleRequest: {
+    status: {
+      type: String,
+      enum: ['pending', 'accepted', 'declined'],
+    },
+    requestedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    requestedAt: { type: Date },
+    reason: { type: String, trim: true, maxlength: 500 },
+    note: { type: String, trim: true, maxlength: 2000 },
+    previousSchedule: {
+      scheduledStartDate: { type: Date },
+      scheduledExecutionEndDate: { type: Date },
+      scheduledBufferStartDate: { type: Date },
+      scheduledBufferEndDate: { type: Date },
+      scheduledBufferUnit: { type: String, enum: ['hours', 'days'] },
+      scheduledStartTime: { type: String, match: TIME_24H_REGEX },
+      scheduledEndTime: { type: String, match: TIME_24H_REGEX },
+    },
+    proposedSchedule: {
+      scheduledStartDate: { type: Date },
+      scheduledExecutionEndDate: { type: Date },
+      scheduledBufferStartDate: { type: Date },
+      scheduledBufferEndDate: { type: Date },
+      scheduledBufferUnit: { type: String, enum: ['hours', 'days'] },
+      scheduledStartTime: { type: String, match: TIME_24H_REGEX },
+      scheduledEndTime: { type: String, match: TIME_24H_REGEX },
+    },
+    respondedAt: { type: Date },
+    respondedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    responseNote: { type: String, trim: true, maxlength: 2000 },
+  },
   warrantyCoverage: {
     duration: {
       value: { type: Number, min: 0 },
