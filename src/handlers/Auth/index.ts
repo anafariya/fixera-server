@@ -317,6 +317,8 @@ export const SignUp = async (req: Request, res: Response, next: NextFunction) =>
       bookingBlockedRanges,
       profileCompletedAt: user.profileCompletedAt,
       professionalOnboardingCompletedAt: user.professionalOnboardingCompletedAt,
+      onboardingAgreements: user.onboardingAgreements,
+      stripe: user.stripe,
       // Customer-specific fields
       customerType: user.customerType,
       location: user.location,
@@ -437,6 +439,8 @@ export const LogIn = async (req: Request, res: Response, next: NextFunction) => 
       username: userExists.username,
       businessInfo: userExists.businessInfo,
       professionalOnboardingCompletedAt: userExists.professionalOnboardingCompletedAt,
+      onboardingAgreements: userExists.onboardingAgreements,
+      stripe: userExists.stripe,
       createdAt: userExists.createdAt,
       updatedAt: userExists.updatedAt
     };
@@ -516,12 +520,18 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
       return res.status(200).json({ success: true, authenticated: false, user: null });
     }
 
-    if (
+    const now = new Date();
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    const shouldSendIdExpiryReminder =
       user.role === "professional" &&
       user.idExpirationDate &&
-      new Date(user.idExpirationDate) <= new Date() &&
-      !user.idExpiryEmailSentAt
-    ) {
+      new Date(user.idExpirationDate) <= now &&
+      (
+        !user.idExpiryEmailSentAt ||
+        (now.getTime() - new Date(user.idExpiryEmailSentAt).getTime()) >= sevenDaysMs
+      );
+
+    if (shouldSendIdExpiryReminder) {
       sendIdExpiredEmail(user.email, user.name)
         .then((sent) => {
           if (sent) {
@@ -574,6 +584,8 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
       bookingBlockedRanges,
       profileCompletedAt: user.profileCompletedAt,
       professionalOnboardingCompletedAt: user.professionalOnboardingCompletedAt,
+      onboardingAgreements: user.onboardingAgreements,
+      stripe: user.stripe,
       // Customer-specific fields
       customerType: user.customerType,
       businessName: user.businessName,

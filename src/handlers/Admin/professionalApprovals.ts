@@ -3,7 +3,7 @@ import User, { IUser } from "../../models/user";
 import connecToDatabase from "../../config/db";
 import jwt from 'jsonwebtoken';
 import { sendProfessionalApprovalEmail, sendProfessionalIdChangeApprovalEmail, sendProfessionalIdChangeRejectionEmail, sendProfessionalRejectionEmail, sendProfessionalSuspensionEmail, sendProfessionalReactivationEmail } from "../../utils/emailService";
-import { deleteFromS3, parseS3KeyFromUrl } from "../../utils/s3Upload";
+import { deleteFromS3, getPresignedUrl, parseS3KeyFromUrl, presignS3Url } from "../../utils/s3Upload";
 import mongoose from 'mongoose';
 import { normalizePendingOldValue } from "../../utils/pendingIdChanges";
 
@@ -18,6 +18,49 @@ const buildS3UrlFromKey = (key: string): string => {
   const bucket = process.env.S3_BUCKET_NAME || 'fixera-uploads';
   const region = process.env.AWS_REGION || 'us-east-1';
   return `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
+};
+
+const presignIdReference = async (value?: string): Promise<string | undefined> => {
+  if (!value) return undefined;
+  if (value.startsWith('id-proof/')) {
+    try {
+      return await getPresignedUrl(value, 7 * 24 * 60 * 60);
+    } catch {
+      return value;
+    }
+  }
+  if (value.startsWith('http')) {
+    return (await presignS3Url(value, 7 * 24 * 60 * 60)) || value;
+  }
+  return value;
+};
+
+const serializeProfessionalForAdmin = async (professional: any) => {
+  const serialized = typeof professional?.toObject === 'function'
+    ? professional.toObject()
+    : { ...professional };
+
+  serialized.idProofUrl = await presignIdReference(
+    serialized.idProofFileName || serialized.idProofUrl
+  );
+
+  if (Array.isArray(serialized.pendingIdChanges)) {
+    serialized.pendingIdChanges = await Promise.all(
+      serialized.pendingIdChanges.map(async (change: any) => {
+        if (change?.field !== 'idProofDocument') {
+          return change;
+        }
+
+        return {
+          ...change,
+          oldValue: await presignIdReference(change.oldValue) || change.oldValue,
+          newValue: await presignIdReference(change.newValue) || change.newValue,
+        };
+      })
+    );
+  }
+
+  return serialized;
 };
 
 export const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -95,10 +138,14 @@ export const getPendingProfessionals = async (req: Request, res: Response, next:
 
     console.log(`👑 Admin: Retrieved ${professionals.length} professionals with status ${status} for ${adminUser.email}`);
 
+    const serializedProfessionals = await Promise.all(
+      professionals.map((professional) => serializeProfessionalForAdmin(professional))
+    );
+
     return res.status(200).json({
       success: true,
       data: {
-        professionals,
+        professionals: serializedProfessionals,
         pagination: {
           page,
           limit,
@@ -139,10 +186,12 @@ export const getProfessionalDetails = async (req: Request, res: Response, next: 
 
     console.log(`👑 Admin: Retrieved professional details for ${professional.email}`);
 
+    const serializedProfessional = await serializeProfessionalForAdmin(professional);
+
     return res.status(200).json({
       success: true,
       data: {
-        professional
+        professional: serializedProfessional
       }
     });
 
@@ -189,6 +238,23 @@ export const approveProfessional = async (req: Request, res: Response, next: Nex
     
     if (!professional.isIdVerified || !professional.idProofUrl) {
       missingRequirements.push('ID proof verification');
+    }
+
+    if (!professional.stripe?.accountId || !professional.stripe?.onboardingCompleted) {
+      missingRequirements.push('Stripe onboarding');
+    }
+
+    const hasCompanyDayAvailable = Object.values(professional.companyAvailability || {}).some((day: any) => day?.available);
+    if (!hasCompanyDayAvailable) {
+      missingRequirements.push('Company availability');
+    }
+
+    if (
+      !professional.onboardingAgreements?.rulesAccepted ||
+      !professional.onboardingAgreements?.termsAccepted ||
+      !professional.onboardingAgreements?.selfBillingAccepted
+    ) {
+      missingRequirements.push('Required platform agreements');
     }
 
     if (missingRequirements.length > 0) {

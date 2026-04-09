@@ -116,6 +116,12 @@ export interface IUser extends Document {
     profileImage?: string;
     profileCompletedAt?: Date;
     professionalOnboardingCompletedAt?: Date;
+    onboardingAgreements?: {
+        rulesAccepted?: boolean;
+        termsAccepted?: boolean;
+        selfBillingAccepted?: boolean;
+        acceptedAt?: Date;
+    };
     // Loyalty system fields
     loyaltyLevel?: 'Bronze' | 'Silver' | 'Gold' | 'Platinum' | 'Diamond';
     manualCustomerLevelOverride?: 'Bronze' | 'Silver' | 'Gold' | 'Platinum' | 'Diamond';
@@ -448,6 +454,12 @@ const UserSchema = new Schema({
         type: Date,
         required: false
     },
+    onboardingAgreements: {
+        rulesAccepted: { type: Boolean, default: false },
+        termsAccepted: { type: Boolean, default: false },
+        selfBillingAccepted: { type: Boolean, default: false },
+        acceptedAt: { type: Date, required: false }
+    },
     // Loyalty system fields
     loyaltyLevel: {
         type: String,
@@ -650,6 +662,7 @@ UserSchema.pre("save", function (next) {
 
     if (this.role !== "professional") {
         this.set("stripe", undefined);
+        this.set("onboardingAgreements", undefined);
     }
 
     // Clear fields that employees don't need - they only need:

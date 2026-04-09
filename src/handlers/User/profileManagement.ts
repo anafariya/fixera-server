@@ -21,6 +21,25 @@ const maskEmail = (email: string): string => {
   return `${maskedLocal}@${domain}`;
 };
 
+const normalizeOnboardingAgreements = (value: any) => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const rulesAccepted = Boolean(value.rulesAccepted);
+  const termsAccepted = Boolean(value.termsAccepted);
+  const selfBillingAccepted = Boolean(value.selfBillingAccepted);
+
+  return {
+    rulesAccepted,
+    termsAccepted,
+    selfBillingAccepted,
+    acceptedAt: rulesAccepted && termsAccepted && selfBillingAccepted
+      ? new Date()
+      : undefined,
+  };
+};
+
 export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (req.user?.id) {
@@ -197,12 +216,14 @@ export const updateProfessionalProfile = async (req: Request, res: Response, nex
       hourlyRate,
       currency,
       serviceCategories,
+      availability,
       blockedDates,
       blockedRanges,
       companyAvailability,
       companyBlockedDates,
       companyBlockedRanges,
-      username
+      username,
+      onboardingAgreements
     } = req.body;
 
     await connecToDatabase();
@@ -308,6 +329,13 @@ export const updateProfessionalProfile = async (req: Request, res: Response, nex
         });
       }
       user.serviceCategories = serviceCategories;
+    }
+
+    if (availability) {
+      user.availability = {
+        ...user.availability,
+        ...availability
+      };
     }
 
     if (blockedDates !== undefined) {
@@ -422,6 +450,10 @@ export const updateProfessionalProfile = async (req: Request, res: Response, nex
       user.companyBlockedRanges = validatedCompanyRanges;
     }
 
+    if (onboardingAgreements !== undefined) {
+      user.onboardingAgreements = normalizeOnboardingAgreements(onboardingAgreements) || undefined;
+    }
+
     // Mark profile as completed if key fields are filled
     if (user.businessInfo?.companyName && user.username && user.hourlyRate != null && user.serviceCategories?.length) {
       user.profileCompletedAt = new Date();
@@ -462,11 +494,13 @@ export const updateProfessionalProfile = async (req: Request, res: Response, nex
       hourlyRate: user.hourlyRate,
       currency: user.currency,
       serviceCategories: user.serviceCategories,
+      availability: user.availability,
       blockedDates: user.blockedDates,
       blockedRanges: user.blockedRanges,
       companyAvailability: user.companyAvailability,
       companyBlockedDates: user.companyBlockedDates,
       companyBlockedRanges: user.companyBlockedRanges,
+      onboardingAgreements: user.onboardingAgreements,
       profileCompletedAt: user.profileCompletedAt,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
@@ -490,6 +524,8 @@ export const updateProfessionalProfile = async (req: Request, res: Response, nex
 // Send profile for verification - PHASE 3 implementation
 export const submitForVerification = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const normalizedAgreements = normalizeOnboardingAgreements(req.body?.onboardingAgreements);
+
     await connecToDatabase();
     const userId = req.user?.id;
     if (!userId) {
@@ -537,6 +573,10 @@ export const submitForVerification = async (req: Request, res: Response, next: N
 
     console.log(`🔍 PHASE 3: Checking verification requirements for ${user.email}`);
 
+    if (normalizedAgreements) {
+      user.onboardingAgreements = normalizedAgreements;
+    }
+
     // Check minimum requirements for submission
     const missingRequirements: string[] = [];
     const missingRequirementDetails: Array<{ code: string; type: string; message: string }> = [];
@@ -556,6 +596,15 @@ export const submitForVerification = async (req: Request, res: Response, next: N
         code: 'ID_PROOF_MISSING',
         type: 'id',
         message: 'ID proof upload'
+      });
+    }
+
+    if (!user.stripe?.accountId || !user.stripe?.onboardingCompleted) {
+      missingRequirements.push('Stripe integration');
+      missingRequirementDetails.push({
+        code: 'STRIPE_ONBOARDING_MISSING',
+        type: 'stripe',
+        message: 'Stripe onboarding must be completed'
       });
     }
 
@@ -619,6 +668,19 @@ export const submitForVerification = async (req: Request, res: Response, next: N
         code: 'COMPANY_AVAILABILITY_MISSING',
         type: 'availability',
         message: 'Company availability (at least one available day)'
+      });
+    }
+
+    if (
+      !user.onboardingAgreements?.rulesAccepted ||
+      !user.onboardingAgreements?.termsAccepted ||
+      !user.onboardingAgreements?.selfBillingAccepted
+    ) {
+      missingRequirements.push('Required platform agreements');
+      missingRequirementDetails.push({
+        code: 'AGREEMENTS_MISSING',
+        type: 'agreements',
+        message: 'Required platform agreements'
       });
     }
 
@@ -1206,10 +1268,17 @@ export const generateUsernameSuggestionsHandler = async (req: Request, res: Resp
 
     const available: string[] = [];
     for (const suggestion of rawSuggestions) {
+      if (isTooSimilarToCompanyName(suggestion, companyName)) {
+        continue;
+      }
+
       let candidate = suggestion;
       let suffix = 1;
       while (await User.findOne({ username: candidate, _id: { $ne: user._id } })) {
         candidate = `${suggestion}-${suffix}`;
+        if (isTooSimilarToCompanyName(candidate, companyName)) {
+          break;
+        }
         suffix++;
         if (suffix > 10) break;
       }

@@ -136,6 +136,7 @@ export function isTooSimilarToCompanyName(username: string, companyName: string)
     if (!sluggedCompany || !normalizedUsername) return false;
 
     if (normalizedUsername === sluggedCompany) return true;
+    if (sluggedCompany.length >= 3 && normalizedUsername.includes(sluggedCompany)) return true;
     if (levenshteinDistance(normalizedUsername, sluggedCompany) < 3) return true;
     return false;
 }

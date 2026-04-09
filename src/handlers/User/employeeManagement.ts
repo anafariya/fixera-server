@@ -46,11 +46,11 @@ export const inviteEmployee = async (req: Request, res: Response, next: NextFunc
             });
         }
 
-        // Check if user is an approved professional
-        if (professional.role !== 'professional' || professional.professionalStatus !== 'approved') {
+        // Allow invites during onboarding as well; suspension/deletion is already blocked by auth middleware.
+        if (professional.role !== 'professional') {
             return res.status(403).json({
                 success: false,
-                msg: "Only approved professionals can invite employees"
+                msg: "Only professionals can invite employees"
             });
         }
 

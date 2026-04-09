@@ -225,6 +225,19 @@ export const createOrUpdateDraft = async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
+    if (!projectData.id) {
+      const professional = await User.findById(professionalId).select('role stripe');
+      if (
+        professional?.role === 'professional' &&
+        (!professional.stripe?.accountId || !professional.stripe?.onboardingCompleted)
+      ) {
+        return res.status(403).json({
+          error: "Complete Stripe setup before creating projects",
+          code: "STRIPE_ONBOARDING_REQUIRED"
+        });
+      }
+    }
+
     let project;
 
     if (projectData.id) {

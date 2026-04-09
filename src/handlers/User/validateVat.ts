@@ -5,6 +5,15 @@ import connecToDatabase from "../../config/db";
 import jwt from 'jsonwebtoken';
 import { generateUsername, isValidUsernameFormat } from "../../utils/usernameUtils";
 
+export function parsePostalCity(lastLine: string): { postalCode?: string; city: string } {
+  const match = lastLine.match(/^(\d[\dA-Z]{1,4}(?:[\s-][\dA-Z]{2,5})?)\s+(.+)$/i)
+    || lastLine.match(/^([A-Z]\d[\dA-Z](?:\s[\dA-Z]{2,4})?)\s+(.+)$/i);
+  if (match) {
+    return { postalCode: match[1].trim(), city: match[2].trim() };
+  }
+  return { city: lastLine.trim() };
+}
+
 export const validateVAT = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { vatNumber } = req.body;
@@ -33,11 +42,13 @@ export const validateVAT = async (req: Request, res: Response, next: NextFunctio
     let cleanedAddress = null;
     if (validationResult.companyAddress) {
       const addressLines = validationResult.companyAddress.split('\n').filter(line => line.trim());
+      const lastLine = addressLines[addressLines.length - 1] || '';
+      const parsed = parsePostalCity(lastLine);
       cleanedAddress = {
         fullAddress: validationResult.companyAddress,
         streetAddress: addressLines[0] || '',
-        city: addressLines[addressLines.length - 1]?.match(/\d{4,5}\s+(.+)$/)?.[1] || '',
-        postalCode: addressLines[addressLines.length - 1]?.match(/(\d{4,5})/)?.[1] || '',
+        city: parsed.city || (addressLines.length >= 2 ? lastLine.trim() : ''),
+        postalCode: parsed.postalCode || '',
         country: formattedVAT.substring(0, 2)
       };
     }
@@ -136,22 +147,19 @@ export const validateAndPopulateVAT = async (req: Request, res: Response, next: 
           user.businessInfo.address = addressLines[0];
         }
 
-        // Extract postal code and city from last line (common EU format)
         const lastLine = addressLines[addressLines.length - 1];
         if (lastLine) {
-          const postalMatch = lastLine.match(/(\d{4,5})/);
-          const cityMatch = lastLine.match(/\d{4,5}\s+(.+)$/);
-          
-          if (postalMatch && !user.businessInfo.postalCode) {
-            user.businessInfo.postalCode = postalMatch[1];
+          const parsed = parsePostalCity(lastLine);
+          if (parsed.postalCode && !user.businessInfo.postalCode) {
+            user.businessInfo.postalCode = parsed.postalCode;
           }
-          
-          if (cityMatch && !user.businessInfo.city) {
-            user.businessInfo.city = cityMatch[1].trim();
+          if (parsed.city && !user.businessInfo.city) {
+            user.businessInfo.city = parsed.city;
+          } else if (!parsed.postalCode && addressLines.length >= 2 && !user.businessInfo.city) {
+            user.businessInfo.city = lastLine.trim();
           }
         }
 
-        // Set country from VAT number
         if (!user.businessInfo.country) {
           user.businessInfo.country = formattedVAT.substring(0, 2);
         }
@@ -201,15 +209,14 @@ export const validateAndPopulateVAT = async (req: Request, res: Response, next: 
 
         const lastLine = addressLines[addressLines.length - 1];
         if (lastLine) {
-          const postalMatch = lastLine.match(/(\d{4,5})/);
-          const cityMatch = lastLine.match(/\d{4,5}\s+(.+)$/);
-
-          if (postalMatch && !user.companyAddress.postalCode) {
-            user.companyAddress.postalCode = postalMatch[1];
+          const parsed = parsePostalCity(lastLine);
+          if (parsed.postalCode && !user.companyAddress.postalCode) {
+            user.companyAddress.postalCode = parsed.postalCode;
           }
-
-          if (cityMatch && !user.companyAddress.city) {
-            user.companyAddress.city = cityMatch[1].trim();
+          if (parsed.city && !user.companyAddress.city) {
+            user.companyAddress.city = parsed.city;
+          } else if (!parsed.postalCode && addressLines.length >= 2 && !user.companyAddress.city) {
+            user.companyAddress.city = lastLine.trim();
           }
         }
 
