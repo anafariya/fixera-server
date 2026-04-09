@@ -86,16 +86,6 @@ export const createConnectAccount = async (req: Request, res: Response) => {
       });
     }
 
-    if (user.professionalStatus !== 'approved') {
-      return res.status(403).json({
-        success: false,
-        error: {
-          code: 'NOT_APPROVED',
-          message: 'Professional must be approved before connecting Stripe'
-        }
-      });
-    }
-
     // Check if account already exists
     if (user.stripe?.accountId) {
       // Return existing account status

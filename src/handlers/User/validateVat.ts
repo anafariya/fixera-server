@@ -33,11 +33,21 @@ export const validateVAT = async (req: Request, res: Response, next: NextFunctio
     let cleanedAddress = null;
     if (validationResult.companyAddress) {
       const addressLines = validationResult.companyAddress.split('\n').filter(line => line.trim());
+      const lastLine = addressLines[addressLines.length - 1] || '';
+      let city = '';
+      let postalCode = '';
+      const postalCityMatch = lastLine.match(/^([A-Z0-9-]{3,10})\s+(.+)$/i);
+      if (postalCityMatch) {
+        postalCode = postalCityMatch[1];
+        city = postalCityMatch[2].trim();
+      } else if (addressLines.length >= 2) {
+        city = lastLine.trim();
+      }
       cleanedAddress = {
         fullAddress: validationResult.companyAddress,
         streetAddress: addressLines[0] || '',
-        city: addressLines[addressLines.length - 1]?.match(/\d{4,5}\s+(.+)$/)?.[1] || '',
-        postalCode: addressLines[addressLines.length - 1]?.match(/(\d{4,5})/)?.[1] || '',
+        city,
+        postalCode,
         country: formattedVAT.substring(0, 2)
       };
     }
@@ -136,22 +146,21 @@ export const validateAndPopulateVAT = async (req: Request, res: Response, next: 
           user.businessInfo.address = addressLines[0];
         }
 
-        // Extract postal code and city from last line (common EU format)
         const lastLine = addressLines[addressLines.length - 1];
         if (lastLine) {
-          const postalMatch = lastLine.match(/(\d{4,5})/);
-          const cityMatch = lastLine.match(/\d{4,5}\s+(.+)$/);
-          
-          if (postalMatch && !user.businessInfo.postalCode) {
-            user.businessInfo.postalCode = postalMatch[1];
-          }
-          
-          if (cityMatch && !user.businessInfo.city) {
-            user.businessInfo.city = cityMatch[1].trim();
+          const postalCityMatch = lastLine.match(/^([A-Z0-9-]{3,10})\s+(.+)$/i);
+          if (postalCityMatch) {
+            if (!user.businessInfo.postalCode) {
+              user.businessInfo.postalCode = postalCityMatch[1];
+            }
+            if (!user.businessInfo.city) {
+              user.businessInfo.city = postalCityMatch[2].trim();
+            }
+          } else if (addressLines.length >= 2 && !user.businessInfo.city) {
+            user.businessInfo.city = lastLine.trim();
           }
         }
 
-        // Set country from VAT number
         if (!user.businessInfo.country) {
           user.businessInfo.country = formattedVAT.substring(0, 2);
         }
@@ -201,15 +210,16 @@ export const validateAndPopulateVAT = async (req: Request, res: Response, next: 
 
         const lastLine = addressLines[addressLines.length - 1];
         if (lastLine) {
-          const postalMatch = lastLine.match(/(\d{4,5})/);
-          const cityMatch = lastLine.match(/\d{4,5}\s+(.+)$/);
-
-          if (postalMatch && !user.companyAddress.postalCode) {
-            user.companyAddress.postalCode = postalMatch[1];
-          }
-
-          if (cityMatch && !user.companyAddress.city) {
-            user.companyAddress.city = cityMatch[1].trim();
+          const postalCityMatch = lastLine.match(/^([A-Z0-9-]{3,10})\s+(.+)$/i);
+          if (postalCityMatch) {
+            if (!user.companyAddress.postalCode) {
+              user.companyAddress.postalCode = postalCityMatch[1];
+            }
+            if (!user.companyAddress.city) {
+              user.companyAddress.city = postalCityMatch[2].trim();
+            }
+          } else if (addressLines.length >= 2 && !user.companyAddress.city) {
+            user.companyAddress.city = lastLine.trim();
           }
         }
 
