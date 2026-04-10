@@ -31,8 +31,8 @@ if (!email) {
   process.exit(1);
 }
 
-deleteUserByEmail(email).catch((err) => {
+deleteUserByEmail(email).catch(async (err) => {
   console.error("Error:", err);
-  mongoose.disconnect();
+  await mongoose.disconnect();
   process.exit(1);
 });
