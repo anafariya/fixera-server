@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import User from "../../models/user";
 import { deleteUserData } from "../../utils/deleteUserData";
 
@@ -10,6 +11,10 @@ export const deleteUser = async (req: Request, res: Response) => {
     }
 
     const { userId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, msg: "Invalid userId" });
+    }
 
     const user = await User.findById(userId);
     if (!user) {

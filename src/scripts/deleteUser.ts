@@ -13,8 +13,10 @@ async function deleteUserByEmail(email: string) {
 
   await mongoose.connect(mongoUri);
 
-  const user = await User.findOne({ email: email.toLowerCase().trim() });
+  const normalizedEmail = email.toLowerCase().trim();
+  const user = await User.findOne({ email: normalizedEmail });
   if (!user) {
+    console.error(`User not found with email: ${normalizedEmail}`);
     await mongoose.disconnect();
     process.exit(1);
   }
