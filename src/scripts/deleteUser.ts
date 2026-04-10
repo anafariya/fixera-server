@@ -21,7 +21,9 @@ async function deleteS3Files(urls: (string | undefined | null)[]) {
     if (!key) continue;
     try {
       await deleteFromS3(key);
-    } catch {}
+    } catch (err) {
+      console.error(`Failed to delete S3 file: ${key}`, err);
+    }
   }
 }
 
@@ -71,7 +73,7 @@ async function collectWarrantyS3Urls(claims: any[]): Promise<string[]> {
   const urls: string[] = [];
   for (const c of claims) {
     if (c.evidence) urls.push(...c.evidence);
-    if (c.resolution?.evidence) urls.push(...c.resolution.evidence);
+    if (c.resolution?.attachments) urls.push(...c.resolution.attachments);
   }
   return urls;
 }
