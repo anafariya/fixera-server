@@ -10,6 +10,7 @@ import Booking, { IQuoteVersion, IQuotationMilestone, IBookingMilestone } from '
 import User from '../../models/user';
 import Conversation from '../../models/conversation';
 import ChatMessage from '../../models/chatMessage';
+import PlatformSettings from '../../models/platformSettings';
 import { addWorkingDays } from '../../utils/workingDays';
 import { getNextSequence } from '../../utils/counterSequence';
 import { createPaymentIntent } from '../Stripe/payment';
@@ -44,8 +45,14 @@ const sendQuotationChatMessage = async (
 
     if (!conversation) return;
 
+    const platformSettings = await PlatformSettings.getCurrentConfig();
+    const commissionPercent = platformSettings?.commissionPercent || 0;
+    const customerAmount = +(totalAmount * (1 + commissionPercent / 100)).toFixed(2);
+
     const label = isUpdate ? 'Updated Quotation' : 'New Quotation';
-    const text = `${label}: ${booking.quotationNumber || ''} (v${version})\n\nScope: ${scope}\nAmount: ${currency} ${totalAmount.toFixed(2)}\nValid until: ${new Date(validUntil).toLocaleDateString()}\n\nView and respond to this quotation in your bookings dashboard.`;
+    const validDate = new Date(validUntil);
+    const validDateStr = !isNaN(validDate.getTime()) ? validDate.toISOString().split('T')[0] : validUntil;
+    const text = `${label}: ${booking.quotationNumber || ''} (v${version})\n\nScope: ${scope}\nAmount: ${currency} ${customerAmount.toFixed(2)}\nValid until: ${validDateStr}\n\nView and respond to this quotation in your bookings dashboard.`;
 
     await ChatMessage.create({
       conversationId: conversation._id,
@@ -58,9 +65,9 @@ const sendQuotationChatMessage = async (
         quotationNumber: booking.quotationNumber || '',
         version,
         scope,
-        totalAmount,
+        totalAmount: customerAmount,
         currency,
-        validUntil: new Date(validUntil).toISOString(),
+        validUntil: validDateStr,
         status: 'quoted',
       },
     });
