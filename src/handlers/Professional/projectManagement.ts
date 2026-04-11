@@ -73,14 +73,14 @@ export const getProject = async (req: Request, res: Response) => {
     if (!professional || professional.role !== 'professional') {
       return res.status(403).json({
         success: false,
-        message: 'Only approved professionals can submit projects'
+        message: 'Only approved professionals can view this project'
       });
     }
 
     if (professional.professionalStatus !== 'approved') {
       return res.status(403).json({
         success: false,
-        message: 'Professional approval is required before submitting projects',
+        message: 'Professional approval is required before viewing projects',
         code: 'PROFESSIONAL_APPROVAL_REQUIRED'
       });
     }
@@ -118,6 +118,22 @@ export const getAllProjects = async (req: Request, res: Response) => {
   try {
     const userId = String(req.user?._id);
     const { status } = req.query;
+    const professional = await User.findById(userId).select('role professionalStatus');
+
+    if (!professional || professional.role !== 'professional') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only approved professionals can view projects'
+      });
+    }
+
+    if (professional.professionalStatus !== 'approved') {
+      return res.status(403).json({
+        success: false,
+        message: 'Professional approval is required before viewing projects',
+        code: 'PROFESSIONAL_APPROVAL_REQUIRED'
+      });
+    }
 
     const filter: any = { professionalId: userId };
     if (status) filter.status = status;
@@ -146,6 +162,22 @@ export const submitProject = async (req: Request, res: Response) => {
   try {
     const userId = String(req.user?._id);
     const { id } = req.params;
+    const professional = await User.findById(userId).select('role professionalStatus');
+
+    if (!professional || professional.role !== 'professional') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only approved professionals can submit projects'
+      });
+    }
+
+    if (professional.professionalStatus !== 'approved') {
+      return res.status(403).json({
+        success: false,
+        message: 'Professional approval is required before submitting projects',
+        code: 'PROFESSIONAL_APPROVAL_REQUIRED'
+      });
+    }
 
     const project = await Project.findOne({
       _id: id,
@@ -190,6 +222,22 @@ export const deleteProject = async (req: Request, res: Response) => {
   try {
     const userId = String(req.user?._id);
     const { id } = req.params;
+    const professional = await User.findById(userId).select('role professionalStatus');
+
+    if (!professional || professional.role !== 'professional') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only approved professionals can delete projects'
+      });
+    }
+
+    if (professional.professionalStatus !== 'approved') {
+      return res.status(403).json({
+        success: false,
+        message: 'Professional approval is required before deleting projects',
+        code: 'PROFESSIONAL_APPROVAL_REQUIRED'
+      });
+    }
 
     const project = await Project.findOneAndDelete({
       _id: id,

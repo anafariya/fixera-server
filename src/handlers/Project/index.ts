@@ -238,10 +238,7 @@ export const createOrUpdateDraft = async (req: Request, res: Response) => {
     }
 
     if (!projectData.id) {
-      if (
-        professional?.role === 'professional' &&
-        (!professional.stripe?.accountId || !professional.stripe?.onboardingCompleted)
-      ) {
+      if (!professional.stripe?.accountId || !professional.stripe?.onboardingCompleted) {
         return res.status(403).json({
           error: "Complete Stripe setup before creating projects",
           code: "STRIPE_ONBOARDING_REQUIRED"

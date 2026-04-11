@@ -226,6 +226,7 @@ export const sendProfessionalWelcomeEmail = async (email: string, professionalNa
     await emailAPI.sendTransacEmail(sendSmtpEmail);
     return true;
   } catch (error: any) {
+    console.error('Failed to send professional welcome email:', error);
     return false;
   }
 };
