@@ -12,15 +12,6 @@ import { isValidUsernameFormat, isTooSimilarToCompanyName, generateUsernameSugge
 import { sendProfessionalWelcomeEmail } from "../../utils/emailService";
 
 const phoneUtil = PhoneNumberUtil.getInstance();
-const maskEmail = (email: string): string => {
-  if (!email) return 'Unknown';
-  const [local, domain] = email.split('@');
-  if (!local || !domain) return email;
-  const maskedLocal = local.length > 2 
-    ? local.substring(0, 2) + '*'.repeat(local.length - 2) 
-    : local + '*';
-  return `${maskedLocal}@${domain}`;
-};
 
 const normalizeOnboardingAgreements = (value: any) => {
   if (!value || typeof value !== 'object') {
