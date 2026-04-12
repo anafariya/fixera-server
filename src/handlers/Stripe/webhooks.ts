@@ -209,27 +209,34 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
   const booking = await Booking.findById(bookingId);
   if (!booking || !booking.payment) return;
 
-  // Only update if not already authorized
-  if (booking.payment.status === 'pending') {
-    const now = new Date();
-    const msIdx = (booking.payment as any).milestoneIndex;
-    const updateFields: Record<string, any> = {
-      'payment.status': 'authorized',
-      'payment.authorizedAt': now,
-      status: 'booked',
-    };
-    if (paymentIntent.latest_charge) {
-      updateFields['payment.stripeChargeId'] = paymentIntent.latest_charge as string;
-    }
-    if (typeof msIdx === 'number' && Array.isArray(booking.milestonePayments) && booking.milestonePayments[msIdx]) {
-      updateFields[`milestonePayments.${msIdx}.status`] = 'paid';
-      updateFields[`milestonePayments.${msIdx}.paidAt`] = now;
+  const now = new Date();
+  const msIdx = (booking.payment as any).milestoneIndex;
+  const isMilestone = typeof msIdx === 'number'
+    && Array.isArray(booking.milestonePayments)
+    && booking.milestonePayments[msIdx]
+    && booking.milestonePayments[msIdx].status !== 'paid';
+
+  if (booking.payment.status === 'pending' || isMilestone) {
+    const updateFields: Record<string, any> = {};
+    const filter: Record<string, any> = { _id: booking._id };
+
+    if (booking.payment.status === 'pending') {
+      updateFields['payment.status'] = 'authorized';
+      updateFields['payment.authorizedAt'] = now;
+      updateFields.status = 'booked';
+      filter['payment.status'] = 'pending';
+      if (paymentIntent.latest_charge) {
+        updateFields['payment.stripeChargeId'] = paymentIntent.latest_charge as string;
+      }
     }
 
-    const filter: Record<string, any> = { _id: booking._id, 'payment.status': 'pending' };
-    if (typeof msIdx === 'number') {
+    if (isMilestone) {
+      updateFields[`milestonePayments.${msIdx}.status`] = 'paid';
+      updateFields[`milestonePayments.${msIdx}.paidAt`] = now;
       filter[`milestonePayments.${msIdx}.status`] = { $ne: 'paid' };
     }
+
+    if (Object.keys(updateFields).length === 0) return;
 
     const updated = await Booking.findOneAndUpdate(filter, { $set: updateFields }, { new: true });
     if (!updated) return;

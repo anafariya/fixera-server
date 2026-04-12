@@ -319,7 +319,12 @@ const getPrepHoursForDate = (
   };
 };
 
-const getProjectDurations = (project: any, subprojectIndex?: number) => {
+export type DurationOverride = {
+  execution?: { value?: number; unit?: string };
+  preparation?: { value?: number; unit?: string };
+};
+
+const getProjectDurations = (project: any, subprojectIndex?: number, override?: DurationOverride) => {
   const subproject =
     typeof subprojectIndex === "number" &&
     Array.isArray(project.subprojects) &&
@@ -327,7 +332,9 @@ const getProjectDurations = (project: any, subprojectIndex?: number) => {
       ? project.subprojects[subprojectIndex]
       : null;
 
-  const execution = subproject?.executionDuration || project.executionDuration;
+  const execution = (override?.execution && override.execution.value && override.execution.value > 0)
+    ? override.execution
+    : (subproject?.executionDuration || project.executionDuration);
   const isRfqPackage = subproject?.pricing?.type === "rfq";
   const executionValue =
     typeof execution?.value === "number" && execution.value > 0
@@ -349,9 +356,11 @@ const getProjectDurations = (project: any, subprojectIndex?: number) => {
   const buffer = subproject?.buffer || project.bufferDuration || null;
 
   const effectiveUnit = execution?.unit || rfqFallbackUnit;
-  const prepValue = subproject?.preparationDuration?.value;
-  const prepUnit =
-    subproject?.preparationDuration?.unit || effectiveUnit;
+  const overridePrep = override?.preparation && typeof override.preparation.value === "number"
+    ? override.preparation
+    : null;
+  const prepValue = overridePrep?.value ?? subproject?.preparationDuration?.value;
+  const prepUnit = overridePrep?.unit || subproject?.preparationDuration?.unit || effectiveUnit;
 
   const preparation =
     typeof prepValue === "number"
@@ -1976,13 +1985,14 @@ const calculateBufferEnd = (
 export const buildProjectScheduleProposalsWithData = async (
   project: any,
   professional: any,
-  subprojectIndex?: number
+  subprojectIndex?: number,
+  durationOverride?: DurationOverride
 ): Promise<ScheduleProposals | null> => {
   if (!project || !professional) {
     return null;
   }
 
-  const durations = getProjectDurations(project, subprojectIndex);
+  const durations = getProjectDurations(project, subprojectIndex, durationOverride);
   if (!durations || !durations.execution?.value) {
     return null;
   }
@@ -2316,14 +2326,15 @@ export const buildProjectScheduleProposalsWithData = async (
  */
 export const buildProjectScheduleProposals = async (
   projectId: string,
-  subprojectIndex?: number
+  subprojectIndex?: number,
+  durationOverride?: DurationOverride
 ): Promise<ScheduleProposals | null> => {
   const { project, professional } = await loadProjectAndProfessional(projectId);
   if (!project || !professional) {
     return null;
   }
 
-  return buildProjectScheduleProposalsWithData(project, professional, subprojectIndex);
+  return buildProjectScheduleProposalsWithData(project, professional, subprojectIndex, durationOverride);
 };
 
 export const validateProjectScheduleSelection = async ({
@@ -2524,12 +2535,14 @@ export const buildProjectScheduleWindow = async ({
   startDate,
   startTime,
   customerBlocks,
+  durationOverride,
 }: {
   projectId: string;
   subprojectIndex?: number;
   startDate?: string;
   startTime?: string;
   customerBlocks?: CustomerBlocks;
+  durationOverride?: DurationOverride;
 }) => {
   if (!startDate) {
     return null;
@@ -2540,7 +2553,7 @@ export const buildProjectScheduleWindow = async ({
     return null;
   }
 
-  const durations = getProjectDurations(project, subprojectIndex);
+  const durations = getProjectDurations(project, subprojectIndex, durationOverride);
   if (!durations || !durations.execution?.value) {
     return null;
   }

@@ -122,10 +122,12 @@ export const createPaymentIntent = async (
       return { success: false, error: { code: 'UNAUTHORIZED', message: 'Not authorized' } };
     }
 
-    // Check if payment intent already exists and is valid
+    const hasUnpaidMilestones = Array.isArray(booking.milestonePayments)
+      && booking.milestonePayments.length > 0
+      && booking.milestonePayments.some((m: any) => m.status !== 'paid');
+
     if (booking.payment?.stripePaymentIntentId && booking.payment?.stripeClientSecret) {
-      // If payment is already authorized or completed, don't create new intent
-      if (['authorized', 'completed'].includes(booking.payment.status)) {
+      if (['authorized', 'completed'].includes(booking.payment.status) && !hasUnpaidMilestones) {
         return {
           success: false,
           error: {
@@ -134,8 +136,7 @@ export const createPaymentIntent = async (
           }
         };
       }
-      // If payment is pending and has a valid client secret, return existing one
-      if (booking.payment.status === 'pending') {
+      if (booking.payment.status === 'pending' && !hasUnpaidMilestones) {
         console.log(`♻️  Reusing existing PaymentIntent for booking ${booking._id}: ${booking.payment.stripePaymentIntentId}`);
         return {
           success: true,
@@ -144,11 +145,10 @@ export const createPaymentIntent = async (
       }
     }
 
-    // Verify quote exists and status allows payment initialization
-    if (
-      !booking.quote ||
-      !['quote_accepted', 'payment_pending', 'booked'].includes(booking.status)
-    ) {
+    const allowedStatuses = hasUnpaidMilestones
+      ? ['quote_accepted', 'payment_pending', 'booked', 'in_progress', 'professional_completed']
+      : ['quote_accepted', 'payment_pending', 'booked'];
+    if (!booking.quote || !allowedStatuses.includes(booking.status)) {
       return { success: false, error: { code: 'NO_QUOTE', message: 'No quote to pay for' } };
     }
 
@@ -385,7 +385,9 @@ export const createPaymentIntent = async (
         },
       }),
     };
-    booking.status = 'payment_pending';
+    if (!hasUnpaidMilestones || ['quote_accepted', 'payment_pending'].includes(booking.status)) {
+      booking.status = 'payment_pending';
+    }
     await booking.save();
 
     // Points deduction is handled in the payment success webhook (handlePaymentIntentSucceeded)

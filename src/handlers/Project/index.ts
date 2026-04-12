@@ -1268,7 +1268,18 @@ export const getProjectScheduleProposals = async (req: Request, res: Response) =
     }
     const subprojectIndex = subprojectIndexResult.index;
 
-    const proposals = await buildProjectScheduleProposals(id as string, subprojectIndex);
+    const parseDur = (v: unknown, u: unknown) => {
+      const value = Number(v);
+      const unit = typeof u === 'string' ? u : undefined;
+      return Number.isFinite(value) && value > 0 ? { value, unit } : undefined;
+    };
+    const executionOverride = parseDur(req.query.executionValue, req.query.executionUnit);
+    const preparationOverride = parseDur(req.query.preparationValue, req.query.preparationUnit);
+    const durationOverride = executionOverride || preparationOverride
+      ? { execution: executionOverride, preparation: preparationOverride }
+      : undefined;
+
+    const proposals = await buildProjectScheduleProposals(id as string, subprojectIndex, durationOverride);
 
     if (!proposals) {
       return res.status(404).json({
@@ -1344,11 +1355,23 @@ export const getProjectScheduleWindow = async (req: Request, res: Response) => {
     }
     const subprojectIndex = subprojectIndexResult.index;
 
+    const parseDurW = (v: unknown, u: unknown) => {
+      const value = Number(v);
+      const unit = typeof u === 'string' ? u : undefined;
+      return Number.isFinite(value) && value > 0 ? { value, unit } : undefined;
+    };
+    const executionOverrideW = parseDurW(req.query.executionValue, req.query.executionUnit);
+    const preparationOverrideW = parseDurW(req.query.preparationValue, req.query.preparationUnit);
+    const durationOverrideW = executionOverrideW || preparationOverrideW
+      ? { execution: executionOverrideW, preparation: preparationOverrideW }
+      : undefined;
+
     const window = await buildProjectScheduleWindow({
       projectId: id as string,
       subprojectIndex,
       startDate: startDate as string,
       startTime: typeof startTime === "string" ? startTime : undefined,
+      durationOverride: durationOverrideW,
     });
 
     if (!window) {
