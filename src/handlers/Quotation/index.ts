@@ -978,6 +978,18 @@ export const updateMilestoneWorkStatus = async (req: Request, res: Response) => 
       milestone.workStatus = 'completed';
       milestone.startedAt = milestone.startedAt || now;
       milestone.completedAt = milestone.completedAt || now;
+
+      const allCompleted = booking.milestonePayments.every((m) => m.workStatus === 'completed');
+      if (allCompleted && booking.status === 'in_progress') {
+        booking.status = 'professional_completed';
+        booking.professionalCompletedAt = now;
+        booking.statusHistory.push({
+          status: 'professional_completed',
+          timestamp: now,
+          updatedBy: new mongoose.Types.ObjectId(userId),
+          note: 'All milestones completed',
+        });
+      }
     }
 
     await booking.save();

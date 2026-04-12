@@ -1268,7 +1268,30 @@ export const getProjectScheduleProposals = async (req: Request, res: Response) =
     }
     const subprojectIndex = subprojectIndexResult.index;
 
-    const proposals = await buildProjectScheduleProposals(id as string, subprojectIndex);
+    const parseDur = (v: unknown, u: unknown): { ok: true; value?: { value: number; unit: 'hours' | 'days' } } | { ok: false; error: string } => {
+      if (v == null && u == null) return { ok: true };
+      const value = Number(v);
+      if (!Number.isFinite(value) || value <= 0) {
+        return { ok: false, error: 'Duration value must be a positive number' };
+      }
+      if (u !== 'hours' && u !== 'days') {
+        return { ok: false, error: "Duration unit must be 'hours' or 'days'" };
+      }
+      return { ok: true, value: { value, unit: u } };
+    };
+    const executionParsed = parseDur(req.query.executionValue, req.query.executionUnit);
+    if (!executionParsed.ok) {
+      return res.status(400).json({ success: false, error: executionParsed.error });
+    }
+    const preparationParsed = parseDur(req.query.preparationValue, req.query.preparationUnit);
+    if (!preparationParsed.ok) {
+      return res.status(400).json({ success: false, error: preparationParsed.error });
+    }
+    const durationOverride = executionParsed.value || preparationParsed.value
+      ? { execution: executionParsed.value, preparation: preparationParsed.value }
+      : undefined;
+
+    const proposals = await buildProjectScheduleProposals(id as string, subprojectIndex, durationOverride);
 
     if (!proposals) {
       return res.status(404).json({
@@ -1344,11 +1367,35 @@ export const getProjectScheduleWindow = async (req: Request, res: Response) => {
     }
     const subprojectIndex = subprojectIndexResult.index;
 
+    const parseDurW = (v: unknown, u: unknown): { ok: true; value?: { value: number; unit: 'hours' | 'days' } } | { ok: false; error: string } => {
+      if (v == null && u == null) return { ok: true };
+      const value = Number(v);
+      if (!Number.isFinite(value) || value <= 0) {
+        return { ok: false, error: 'Duration value must be a positive number' };
+      }
+      if (u !== 'hours' && u !== 'days') {
+        return { ok: false, error: "Duration unit must be 'hours' or 'days'" };
+      }
+      return { ok: true, value: { value, unit: u } };
+    };
+    const executionParsedW = parseDurW(req.query.executionValue, req.query.executionUnit);
+    if (!executionParsedW.ok) {
+      return res.status(400).json({ success: false, error: executionParsedW.error });
+    }
+    const preparationParsedW = parseDurW(req.query.preparationValue, req.query.preparationUnit);
+    if (!preparationParsedW.ok) {
+      return res.status(400).json({ success: false, error: preparationParsedW.error });
+    }
+    const durationOverrideW = executionParsedW.value || preparationParsedW.value
+      ? { execution: executionParsedW.value, preparation: preparationParsedW.value }
+      : undefined;
+
     const window = await buildProjectScheduleWindow({
       projectId: id as string,
       subprojectIndex,
       startDate: startDate as string,
       startTime: typeof startTime === "string" ? startTime : undefined,
+      durationOverride: durationOverrideW,
     });
 
     if (!window) {

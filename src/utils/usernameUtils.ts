@@ -130,6 +130,24 @@ function levenshteinDistance(a: string, b: string): number {
     return dp[m][n];
 }
 
+const GENERIC_COMPANY_TOKENS = new Set([
+    'and', 'the', 'et', 'en', 'de', 'di', 'da', 'le', 'la', 'les', 'des', 'du',
+    'services', 'service', 'group', 'groupe', 'company', 'co', 'solutions',
+    'works', 'pro', 'pros', 'professional', 'professionals',
+    'plumbing', 'electrical', 'electric', 'cleaning', 'repair', 'repairs',
+    'construction', 'building', 'renovation', 'renovations', 'maintenance',
+    'painting', 'carpentry', 'gardening', 'landscaping', 'hvac', 'heating',
+    'cooling', 'roofing', 'flooring', 'tiling', 'installation', 'installations',
+]);
+
+function getDistinctiveCompanyTokens(companyName: string): string[] {
+    const slug = normalizeToSlug(stripCompanySuffix(companyName));
+    if (!slug) return [];
+    return slug
+        .split('-')
+        .filter((w) => w.length >= 3 && !GENERIC_COMPANY_TOKENS.has(w));
+}
+
 export function isTooSimilarToCompanyName(username: string, companyName: string): boolean {
     const sluggedCompany = normalizeToSlug(stripCompanySuffix(companyName));
     const normalizedUsername = normalizeToSlug(username);
@@ -138,6 +156,12 @@ export function isTooSimilarToCompanyName(username: string, companyName: string)
     if (normalizedUsername === sluggedCompany) return true;
     if (sluggedCompany.length >= 3 && normalizedUsername.includes(sluggedCompany)) return true;
     if (levenshteinDistance(normalizedUsername, sluggedCompany) < 3) return true;
+
+    const usernameTokens = new Set(normalizedUsername.split('-').filter(Boolean));
+    for (const token of getDistinctiveCompanyTokens(companyName)) {
+        if (usernameTokens.has(token)) return true;
+        if (token.length >= 5 && normalizedUsername.includes(token)) return true;
+    }
     return false;
 }
 

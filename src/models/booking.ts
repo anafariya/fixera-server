@@ -363,6 +363,7 @@ export interface IBooking extends Document {
   // Metadata
   bookingNumber: string; // Unique booking reference number (e.g., BK-2024-001234)
   notes?: string; // Internal notes
+  professionalCompletedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -1025,6 +1026,9 @@ const BookingSchema = new Schema({
   notes: {
     type: String,
     maxlength: 2000
+  },
+  professionalCompletedAt: {
+    type: Date
   }
 }, {
   timestamps: true

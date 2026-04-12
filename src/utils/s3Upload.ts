@@ -307,6 +307,7 @@ export const ALLOWED_KEY_PREFIXES = [
   'project-images/',
   'project-videos/',
   'project-attachments/',
+  'projects/',
   'review-images/',
   'reviews/',
   'warranty-claims/',
