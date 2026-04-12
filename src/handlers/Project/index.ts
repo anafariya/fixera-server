@@ -1268,15 +1268,27 @@ export const getProjectScheduleProposals = async (req: Request, res: Response) =
     }
     const subprojectIndex = subprojectIndexResult.index;
 
-    const parseDur = (v: unknown, u: unknown) => {
+    const parseDur = (v: unknown, u: unknown): { ok: true; value?: { value: number; unit: 'hours' | 'days' } } | { ok: false; error: string } => {
+      if (v == null && u == null) return { ok: true };
       const value = Number(v);
-      const unit = typeof u === 'string' ? u : undefined;
-      return Number.isFinite(value) && value > 0 ? { value, unit } : undefined;
+      if (!Number.isFinite(value) || value <= 0) {
+        return { ok: false, error: 'Duration value must be a positive number' };
+      }
+      if (u !== 'hours' && u !== 'days') {
+        return { ok: false, error: "Duration unit must be 'hours' or 'days'" };
+      }
+      return { ok: true, value: { value, unit: u } };
     };
-    const executionOverride = parseDur(req.query.executionValue, req.query.executionUnit);
-    const preparationOverride = parseDur(req.query.preparationValue, req.query.preparationUnit);
-    const durationOverride = executionOverride || preparationOverride
-      ? { execution: executionOverride, preparation: preparationOverride }
+    const executionParsed = parseDur(req.query.executionValue, req.query.executionUnit);
+    if (!executionParsed.ok) {
+      return res.status(400).json({ success: false, error: executionParsed.error });
+    }
+    const preparationParsed = parseDur(req.query.preparationValue, req.query.preparationUnit);
+    if (!preparationParsed.ok) {
+      return res.status(400).json({ success: false, error: preparationParsed.error });
+    }
+    const durationOverride = executionParsed.value || preparationParsed.value
+      ? { execution: executionParsed.value, preparation: preparationParsed.value }
       : undefined;
 
     const proposals = await buildProjectScheduleProposals(id as string, subprojectIndex, durationOverride);
@@ -1355,15 +1367,27 @@ export const getProjectScheduleWindow = async (req: Request, res: Response) => {
     }
     const subprojectIndex = subprojectIndexResult.index;
 
-    const parseDurW = (v: unknown, u: unknown) => {
+    const parseDurW = (v: unknown, u: unknown): { ok: true; value?: { value: number; unit: 'hours' | 'days' } } | { ok: false; error: string } => {
+      if (v == null && u == null) return { ok: true };
       const value = Number(v);
-      const unit = typeof u === 'string' ? u : undefined;
-      return Number.isFinite(value) && value > 0 ? { value, unit } : undefined;
+      if (!Number.isFinite(value) || value <= 0) {
+        return { ok: false, error: 'Duration value must be a positive number' };
+      }
+      if (u !== 'hours' && u !== 'days') {
+        return { ok: false, error: "Duration unit must be 'hours' or 'days'" };
+      }
+      return { ok: true, value: { value, unit: u } };
     };
-    const executionOverrideW = parseDurW(req.query.executionValue, req.query.executionUnit);
-    const preparationOverrideW = parseDurW(req.query.preparationValue, req.query.preparationUnit);
-    const durationOverrideW = executionOverrideW || preparationOverrideW
-      ? { execution: executionOverrideW, preparation: preparationOverrideW }
+    const executionParsedW = parseDurW(req.query.executionValue, req.query.executionUnit);
+    if (!executionParsedW.ok) {
+      return res.status(400).json({ success: false, error: executionParsedW.error });
+    }
+    const preparationParsedW = parseDurW(req.query.preparationValue, req.query.preparationUnit);
+    if (!preparationParsedW.ok) {
+      return res.status(400).json({ success: false, error: preparationParsedW.error });
+    }
+    const durationOverrideW = executionParsedW.value || preparationParsedW.value
+      ? { execution: executionParsedW.value, preparation: preparationParsedW.value }
       : undefined;
 
     const window = await buildProjectScheduleWindow({

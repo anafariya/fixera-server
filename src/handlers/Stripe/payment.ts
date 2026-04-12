@@ -523,8 +523,10 @@ export const confirmPayment = async (req: Request, res: Response) => {
         'payment.status': 'authorized',
         'payment.authorizedAt': now,
         'payment.capturedAt': now,
-        status: 'booked',
       };
+      if (booking.status === 'quote_accepted' || booking.status === 'payment_pending') {
+        updateFields.status = 'booked';
+      }
       if (paymentIntent.latest_charge) {
         updateFields['payment.stripeChargeId'] = paymentIntent.latest_charge as string;
       }

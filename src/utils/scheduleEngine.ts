@@ -320,8 +320,8 @@ const getPrepHoursForDate = (
 };
 
 export type DurationOverride = {
-  execution?: { value?: number; unit?: string };
-  preparation?: { value?: number; unit?: string };
+  execution?: { value: number; unit: 'hours' | 'days' };
+  preparation?: { value: number; unit: 'hours' | 'days' };
 };
 
 const getProjectDurations = (project: any, subprojectIndex?: number, override?: DurationOverride) => {
@@ -332,8 +332,13 @@ const getProjectDurations = (project: any, subprojectIndex?: number, override?: 
       ? project.subprojects[subprojectIndex]
       : null;
 
-  const execution = (override?.execution && override.execution.value && override.execution.value > 0)
-    ? override.execution
+  const hasValidExecutionOverride =
+    override?.execution &&
+    typeof override.execution.value === 'number' &&
+    override.execution.value > 0 &&
+    (override.execution.unit === 'hours' || override.execution.unit === 'days');
+  const execution = hasValidExecutionOverride
+    ? override!.execution
     : (subproject?.executionDuration || project.executionDuration);
   const isRfqPackage = subproject?.pricing?.type === "rfq";
   const executionValue =
@@ -356,9 +361,13 @@ const getProjectDurations = (project: any, subprojectIndex?: number, override?: 
   const buffer = subproject?.buffer || project.bufferDuration || null;
 
   const effectiveUnit = execution?.unit || rfqFallbackUnit;
-  const overridePrep = override?.preparation && typeof override.preparation.value === "number"
-    ? override.preparation
-    : null;
+  const overridePrep =
+    override?.preparation &&
+    typeof override.preparation.value === "number" &&
+    override.preparation.value > 0 &&
+    (override.preparation.unit === 'hours' || override.preparation.unit === 'days')
+      ? override.preparation
+      : null;
   const prepValue = overridePrep?.value ?? subproject?.preparationDuration?.value;
   const prepUnit = overridePrep?.unit || subproject?.preparationDuration?.unit || effectiveUnit;
 

@@ -223,7 +223,9 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
     if (booking.payment.status === 'pending') {
       updateFields['payment.status'] = 'authorized';
       updateFields['payment.authorizedAt'] = now;
-      updateFields.status = 'booked';
+      if (booking.status !== 'in_progress' && booking.status !== 'professional_completed' && booking.status !== 'completed') {
+        updateFields.status = 'booked';
+      }
       filter['payment.status'] = 'pending';
       if (paymentIntent.latest_charge) {
         updateFields['payment.stripeChargeId'] = paymentIntent.latest_charge as string;

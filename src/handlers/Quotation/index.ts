@@ -982,7 +982,7 @@ export const updateMilestoneWorkStatus = async (req: Request, res: Response) => 
       const allCompleted = booking.milestonePayments.every((m) => m.workStatus === 'completed');
       if (allCompleted && booking.status === 'in_progress') {
         booking.status = 'professional_completed';
-        (booking as any).professionalCompletedAt = now;
+        booking.professionalCompletedAt = now;
         booking.statusHistory.push({
           status: 'professional_completed',
           timestamp: now,

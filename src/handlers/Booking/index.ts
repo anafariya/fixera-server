@@ -63,8 +63,7 @@ const presignBookingFiles = async (bookingDoc: any) => {
       booking.rfqData.answers.map(async (answer: any) => {
         const val = typeof answer?.answer === 'string' ? answer.answer : '';
         const isFileType = answer?.fieldType === 'file' || answer?.type === 'file' || answer?.type === 'attachment';
-        const looksLikeS3 = /^https?:\/\/.+\.amazonaws\.com\//i.test(val);
-        if (isFileType || looksLikeS3) {
+        if (isFileType) {
           return { ...answer, answer: await presignMaybeS3Url(val) };
         }
         return answer;
@@ -791,7 +790,7 @@ export const getBookingById = async (req: Request, res: Response, next: NextFunc
     const professionalFields = isAdmin
       ? 'name email phone username businessInfo hourlyRate stripe role createdAt'
       : isViewerCustomer
-        ? '_id name username businessInfo'
+        ? '_id name username businessInfo.companyName businessInfo.description businessInfo.website businessInfo.city businessInfo.country businessInfo.timezone'
         : 'name email username businessInfo';
 
     const bookingQuery = Booking.findById(bookingId)

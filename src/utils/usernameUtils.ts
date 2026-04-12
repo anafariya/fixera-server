@@ -160,7 +160,7 @@ export function isTooSimilarToCompanyName(username: string, companyName: string)
     const usernameTokens = new Set(normalizedUsername.split('-').filter(Boolean));
     for (const token of getDistinctiveCompanyTokens(companyName)) {
         if (usernameTokens.has(token)) return true;
-        if (normalizedUsername.includes(token)) return true;
+        if (token.length >= 5 && normalizedUsername.includes(token)) return true;
     }
     return false;
 }
