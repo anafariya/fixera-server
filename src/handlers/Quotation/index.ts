@@ -10,6 +10,7 @@ import Booking, { IQuoteVersion, IQuotationMilestone, IBookingMilestone } from '
 import User from '../../models/user';
 import Conversation from '../../models/conversation';
 import ChatMessage from '../../models/chatMessage';
+import PlatformSettings from '../../models/platformSettings';
 import { addWorkingDays } from '../../utils/workingDays';
 import { getNextSequence } from '../../utils/counterSequence';
 import { createPaymentIntent } from '../Stripe/payment';
@@ -22,6 +23,34 @@ import {
   sendQuotationRejectedEmail,
   sendDirectQuotationEmail,
 } from '../../utils/emailService';
+
+const getSafeCommissionPercent = async (): Promise<number> => {
+  try {
+    const platformSettings = await PlatformSettings.getCurrentConfig();
+    return platformSettings?.commissionPercent || 0;
+  } catch (error) {
+    console.error('Failed to load platform settings for quotation commission:', error);
+    return 0;
+  }
+};
+
+const formatQuotationValidDate = (validUntil: string): string => {
+  const raw = String(validUntil || '').trim();
+  const directDateMatch = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (directDateMatch) {
+    return directDateMatch[1];
+  }
+
+  const validDate = new Date(raw);
+  if (isNaN(validDate.getTime())) {
+    return raw;
+  }
+
+  const year = validDate.getFullYear();
+  const month = String(validDate.getMonth() + 1).padStart(2, '0');
+  const day = String(validDate.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const sendQuotationChatMessage = async (
   booking: any,
@@ -44,8 +73,12 @@ const sendQuotationChatMessage = async (
 
     if (!conversation) return;
 
+    const commissionPercent = await getSafeCommissionPercent();
+    const customerAmount = +(totalAmount * (1 + commissionPercent / 100)).toFixed(2);
+
     const label = isUpdate ? 'Updated Quotation' : 'New Quotation';
-    const text = `${label}: ${booking.quotationNumber || ''} (v${version})\n\nScope: ${scope}\nAmount: ${currency} ${totalAmount.toFixed(2)}\nValid until: ${new Date(validUntil).toLocaleDateString()}\n\nView and respond to this quotation in your bookings dashboard.`;
+    const validDateStr = formatQuotationValidDate(validUntil);
+    const text = `${label}: ${booking.quotationNumber || ''} (v${version})\n\nScope: ${scope}\nAmount: ${currency} ${customerAmount.toFixed(2)}\nValid until: ${validDateStr}\n\nView and respond to this quotation in your bookings dashboard.`;
 
     await ChatMessage.create({
       conversationId: conversation._id,
@@ -58,9 +91,9 @@ const sendQuotationChatMessage = async (
         quotationNumber: booking.quotationNumber || '',
         version,
         scope,
-        totalAmount,
+        totalAmount: customerAmount,
         currency,
-        validUntil: new Date(validUntil).toISOString(),
+        validUntil: validDateStr,
         status: 'quoted',
       },
     });
@@ -595,10 +628,14 @@ export const customerRespondToQuotation = async (req: Request, res: Response) =>
     }
 
     // Also populate legacy quote field for backward compat with payment system
+    const commissionPercent = await getSafeCommissionPercent()
+    const baseAmount = currentVersion?.totalAmount || 0
+    const customerAmount = +(baseAmount * (1 + commissionPercent / 100)).toFixed(2)
     booking.quote = {
-      amount: currentVersion?.totalAmount || 0,
+      amount: customerAmount,
       currency: currentVersion?.currency || 'EUR',
       description: currentVersion?.description,
+      validUntil: currentVersion?.validUntil,
       submittedAt: currentVersion?.createdAt || now,
       submittedBy: booking.professional!._id,
     };
