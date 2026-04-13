@@ -1131,14 +1131,34 @@ BookingSchema.pre('save', async function(next) {
 
   if (this.isNew && !this.bookingNumber) {
     const year = new Date().getFullYear();
-    this.bookingNumber = await getNextSequence(`bookingNumber-${year}`, `BK-${year}`);
+    const Booking = this.constructor as mongoose.Model<any>;
+    let candidate = '';
+    for (let attempt = 0; attempt < 20; attempt++) {
+      candidate = await getNextSequence(`bookingNumber-${year}`, `BK-${year}`);
+      const exists = await Booking.exists({ bookingNumber: candidate });
+      if (!exists) break;
+    }
+    if (!candidate) {
+      return next(new Error('Failed to generate a unique bookingNumber'));
+    }
+    this.bookingNumber = candidate;
   }
 
   // Generate quotation number if quoteVersions exist and no quotationNumber yet
   // Uses atomic counter to avoid race conditions with concurrent saves
   if (!this.quotationNumber && this.quoteVersions && this.quoteVersions.length > 0) {
     const year = new Date().getFullYear();
-    this.quotationNumber = await getNextSequence(`quotationNumber-${year}`, `QT-${year}`);
+    const Booking = this.constructor as mongoose.Model<any>;
+    let candidate = '';
+    for (let attempt = 0; attempt < 20; attempt++) {
+      candidate = await getNextSequence(`quotationNumber-${year}`, `QT-${year}`);
+      const exists = await Booking.exists({ quotationNumber: candidate });
+      if (!exists) break;
+    }
+    if (!candidate) {
+      return next(new Error('Failed to generate a unique quotationNumber'));
+    }
+    this.quotationNumber = candidate;
   }
 
   // Initialize status history if empty
