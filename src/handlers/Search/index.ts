@@ -26,6 +26,10 @@ const getCachedLevelConfig = async (): Promise<IProfessionalLevelConfig> => {
     })
     .catch((err) => {
       cachedLevelConfigPromise = null;
+      if (cachedLevelConfig) {
+        console.warn("Failed to refresh professional level config, serving stale cache:", err);
+        return cachedLevelConfig;
+      }
       throw err;
     });
   return cachedLevelConfigPromise;
@@ -185,37 +189,41 @@ async function searchProfessionals(
 
     const locationLower = location && location.trim() ? location.trim().toLowerCase() : null;
 
+    const rankingAddFields = {
+      $addFields: {
+        rankingBoost: {
+          $switch: { branches: boostBranches, default: defaultBoost },
+        },
+        locationExactMatch: locationLower
+          ? {
+              $cond: [
+                {
+                  $or: [
+                    { $eq: [{ $toLower: { $ifNull: ["$businessInfo.city", ""] } }, locationLower] },
+                    { $eq: [{ $toLower: { $ifNull: ["$businessInfo.country", ""] } }, locationLower] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            }
+          : 0,
+      },
+    };
+
+    const rankingSort = {
+      $sort: locationLower
+        ? { locationExactMatch: -1, rankingBoost: -1, createdAt: -1 }
+        : { rankingBoost: -1, createdAt: -1 },
+    };
+
     const pipeline: any[] = [
       { $match: filter },
       {
-        $addFields: {
-          rankingBoost: {
-            $switch: { branches: boostBranches, default: defaultBoost },
-          },
-          locationExactMatch: locationLower
-            ? {
-                $cond: [
-                  {
-                    $or: [
-                      { $eq: [{ $toLower: { $ifNull: ["$businessInfo.city", ""] } }, locationLower] },
-                      { $eq: [{ $toLower: { $ifNull: ["$businessInfo.country", ""] } }, locationLower] },
-                    ],
-                  },
-                  1,
-                  0,
-                ],
-              }
-            : 0,
-        },
-      },
-      {
-        $sort: locationLower
-          ? { locationExactMatch: -1, rankingBoost: -1, createdAt: -1 }
-          : { rankingBoost: -1, createdAt: -1 },
-      },
-      {
         $facet: {
           results: [
+            rankingAddFields,
+            rankingSort,
             { $skip: skip },
             { $limit: limit },
             {
