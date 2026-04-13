@@ -2,19 +2,33 @@ import { Request, Response } from "express";
 import { Types } from "mongoose";
 import User from "../../models/user";
 import Project from "../../models/project";
-import ProfessionalLevelConfig, { IProfessionalLevelConfig } from "../../models/professionalLevelConfig";
+import ProfessionalLevelConfig from "../../models/professionalLevelConfig";
+import type { IProfessionalLevelConfig } from "../../models/professionalLevelConfig";
 
 const LEVEL_CONFIG_TTL_MS = 5 * 60 * 1000;
 let cachedLevelConfig: IProfessionalLevelConfig | null = null;
 let cachedLevelConfigAt = 0;
+let cachedLevelConfigPromise: Promise<IProfessionalLevelConfig> | null = null;
 
 const getCachedLevelConfig = async (): Promise<IProfessionalLevelConfig> => {
   if (cachedLevelConfig && Date.now() - cachedLevelConfigAt < LEVEL_CONFIG_TTL_MS) {
     return cachedLevelConfig;
   }
-  cachedLevelConfig = await ProfessionalLevelConfig.getCurrentConfig();
-  cachedLevelConfigAt = Date.now();
-  return cachedLevelConfig;
+  if (cachedLevelConfigPromise) {
+    return cachedLevelConfigPromise;
+  }
+  cachedLevelConfigPromise = ProfessionalLevelConfig.getCurrentConfig()
+    .then((config) => {
+      cachedLevelConfig = config;
+      cachedLevelConfigAt = Date.now();
+      cachedLevelConfigPromise = null;
+      return config;
+    })
+    .catch((err) => {
+      cachedLevelConfigPromise = null;
+      throw err;
+    });
+  return cachedLevelConfigPromise;
 };
 import { buildProjectScheduleProposalsWithData } from "../../utils/scheduleEngine";
 
@@ -219,7 +233,6 @@ async function searchProfessionals(
                 profileImage: 1,
                 companyAvailability: 1,
                 professionalLevel: 1,
-                rankingBoost: 1,
                 createdAt: 1,
               },
             },

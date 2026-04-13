@@ -10,17 +10,39 @@ const isCustomDatePayable = (m: any): boolean => {
   return new Date(m.customDueDate).getTime() <= Date.now();
 };
 
-const isMilestonePayable = (m: any): boolean => {
+const isMilestonePayable = (m: any, allMilestones: any[]): boolean => {
+  if (m?.status === "paid") return false;
   const cond = m?.dueCondition;
   if (cond === "on_start") return true;
   if (cond === "on_milestone_start") {
     return m.workStatus === "in_progress" || m.workStatus === "completed";
   }
-  return isCustomDatePayable(m);
+  if (cond === "on_milestone_completion") {
+    return m.workStatus === "completed";
+  }
+  if (cond === "on_project_completion") {
+    return allMilestones.every((s: any) => s.workStatus === "completed");
+  }
+  if (cond === "custom_date") {
+    return isCustomDatePayable(m);
+  }
+  return true;
 };
 
 const hasPayableMilestone = (milestones: any[]): boolean =>
-  milestones.some(isMilestonePayable);
+  milestones.some((m) => isMilestonePayable(m, milestones));
+
+const hasLegitimateDeferral = (milestones: any[]): boolean =>
+  milestones.some((m: any) => {
+    const cond = m?.dueCondition;
+    if (cond === "on_milestone_completion" || cond === "on_project_completion") {
+      return true;
+    }
+    if (cond === "custom_date" && m.customDueDate) {
+      return new Date(m.customDueDate).getTime() > Date.now();
+    }
+    return false;
+  });
 
 async function migrateStuckMilestoneQuotes() {
   const dryRun = process.argv.includes("--dry-run");
@@ -43,6 +65,7 @@ async function migrateStuckMilestoneQuotes() {
     let skippedAlreadyOk = 0;
     let skippedHasPaid = 0;
     let skippedEmpty = 0;
+    let skippedLegitDefer = 0;
 
     for (const booking of bookings) {
       const milestones = booking.milestonePayments || [];
@@ -58,6 +81,11 @@ async function migrateStuckMilestoneQuotes() {
 
       if (hasPayableMilestone(milestones)) {
         skippedAlreadyOk++;
+        continue;
+      }
+
+      if (hasLegitimateDeferral(milestones)) {
+        skippedLegitDefer++;
         continue;
       }
 
@@ -105,6 +133,7 @@ async function migrateStuckMilestoneQuotes() {
     console.log(`  Bookings fixed${dryRun ? " (would)" : ""}: ${fixed}`);
     console.log(`  Skipped (already has payable milestone): ${skippedAlreadyOk}`);
     console.log(`  Skipped (a milestone already paid): ${skippedHasPaid}`);
+    console.log(`  Skipped (legitimate deferral: completion-gated or future custom_date): ${skippedLegitDefer}`);
     console.log(`  Skipped (empty/malformed): ${skippedEmpty}`);
   } finally {
     await mongoose.disconnect();
