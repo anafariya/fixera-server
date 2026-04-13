@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { Types } from "mongoose";
 import User from "../../models/user";
 import Project from "../../models/project";
+import ProfessionalLevelConfig from "../../models/professionalLevelConfig";
 import { buildProjectScheduleProposalsWithData } from "../../utils/scheduleEngine";
 
 export { getPopularServices } from "./getPopularServices";
@@ -142,17 +143,82 @@ async function searchProfessionals(
     // Execute query with pagination
     console.log('[SEARCH] Professional filter:', JSON.stringify(filter, null, 2));
 
-    const [professionals, total] = await Promise.all([
-      User.find(filter)
-        .select(
-          "name username email businessInfo.description businessInfo.city businessInfo.country businessInfo.website hourlyRate currency serviceCategories profileImage companyAvailability createdAt"
-        )
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      User.countDocuments(filter),
-    ]);
+    const levelConfig = await ProfessionalLevelConfig.getCurrentConfig();
+    const boostByLevel = new Map<string, number>();
+    for (const lvl of levelConfig.levels) {
+      boostByLevel.set(lvl.name, lvl.perks?.searchRankingBoost || 1);
+    }
+    const defaultBoost = boostByLevel.get("New") || 1;
+
+    // Build $switch branches so ranking boost is applied at the DB layer
+    const boostBranches = Array.from(boostByLevel.entries()).map(([name, boost]) => ({
+      case: { $eq: ["$professionalLevel", name] },
+      then: boost,
+    }));
+
+    const locationLower = location && location.trim() ? location.trim().toLowerCase() : null;
+
+    const pipeline: any[] = [
+      { $match: filter },
+      {
+        $addFields: {
+          rankingBoost: {
+            $switch: { branches: boostBranches, default: defaultBoost },
+          },
+          locationExactMatch: locationLower
+            ? {
+                $cond: [
+                  {
+                    $or: [
+                      { $eq: [{ $toLower: { $ifNull: ["$businessInfo.city", ""] } }, locationLower] },
+                      { $eq: [{ $toLower: { $ifNull: ["$businessInfo.country", ""] } }, locationLower] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              }
+            : 0,
+        },
+      },
+      {
+        $sort: locationLower
+          ? { locationExactMatch: -1, rankingBoost: -1, createdAt: -1 }
+          : { rankingBoost: -1, createdAt: -1 },
+      },
+      {
+        $facet: {
+          results: [
+            { $skip: skip },
+            { $limit: limit },
+            {
+              $project: {
+                name: 1,
+                username: 1,
+                email: 1,
+                "businessInfo.description": 1,
+                "businessInfo.city": 1,
+                "businessInfo.country": 1,
+                "businessInfo.website": 1,
+                hourlyRate: 1,
+                currency: 1,
+                serviceCategories: 1,
+                profileImage: 1,
+                companyAvailability: 1,
+                professionalLevel: 1,
+                rankingBoost: 1,
+                createdAt: 1,
+              },
+            },
+          ],
+          total: [{ $count: "count" }],
+        },
+      },
+    ];
+
+    const [aggResult] = await User.aggregate(pipeline);
+    const professionals: any[] = aggResult?.results ?? [];
+    const total: number = aggResult?.total?.[0]?.count ?? 0;
 
     console.log('[SEARCH] Found', total, 'professionals, returning', professionals.length);
 
@@ -160,14 +226,13 @@ async function searchProfessionals(
     const professionalIds = professionals.map((p: any) => p._id);
     const ratingMap = await aggregateProfessionalRatings(professionalIds);
 
-    // If location filter is present, prioritize exact matches
     const hasAnyAvailability = (availability?: Record<string, any>) =>
       !!availability &&
       Object.values(availability).some(
         (day) => day?.available || day?.startTime || day?.endTime
       );
 
-    let results = professionals.map((professional: any) => {
+    const results = professionals.map((professional: any) => {
       const { companyAvailability, ...rest } = professional;
       const ratings = ratingMap.get(professional._id.toString());
       return {
@@ -177,19 +242,6 @@ async function searchProfessionals(
         totalReviews: ratings?.totalReviews || 0,
       };
     });
-    if (location && location.trim()) {
-      const exactMatches = results.filter(
-        (p: any) =>
-          p.businessInfo?.city?.toLowerCase() === location.toLowerCase() ||
-          p.businessInfo?.country?.toLowerCase() === location.toLowerCase()
-      );
-      const otherMatches = results.filter(
-        (p: any) =>
-          p.businessInfo?.city?.toLowerCase() !== location.toLowerCase() &&
-          p.businessInfo?.country?.toLowerCase() !== location.toLowerCase()
-      );
-      results = [...exactMatches, ...otherMatches];
-    }
 
     res.json({
       results,
