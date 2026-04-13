@@ -1093,33 +1093,7 @@ export const createMilestonePaymentIntent = async (req: Request, res: Response) 
       return res.status(400).json({ success: false, error: { code: 'ALREADY_PAID', message: 'This milestone is already paid' } });
     }
 
-    // Check that previous milestones are paid
-    for (let i = 0; i < milestoneIndex; i++) {
-      if (booking.milestonePayments[i].status !== 'paid') {
-        return res.status(400).json({ success: false, error: { code: 'PREVIOUS_UNPAID', message: 'Previous milestones must be paid first' } });
-      }
-    }
-
-    // Temporarily set quote to milestone amount for payment intent creation
-    // Use try/finally to guarantee the original quote is always restored
-    const originalQuote = booking.quote ? { ...booking.quote } : undefined;
-    booking.quote = {
-      amount: milestone.amount,
-      currency: originalQuote?.currency || 'EUR',
-      description: `Milestone payment: ${milestone.title}`,
-      submittedAt: new Date(),
-      submittedBy: booking.professional!,
-    };
-    await booking.save();
-
-    let paymentResult: { success: boolean; clientSecret?: string; paymentIntentId?: string; error?: any };
-    try {
-      paymentResult = await createPaymentIntent(booking._id.toString(), userId) as any;
-    } finally {
-      // Always restore original quote regardless of success/failure
-      booking.quote = originalQuote as any;
-      await booking.save();
-    }
+    const paymentResult = await createPaymentIntent(booking._id.toString(), userId, 0, milestoneIndex);
 
     if (!paymentResult.success) {
       return res.status(400).json({ success: false, error: paymentResult.error });
