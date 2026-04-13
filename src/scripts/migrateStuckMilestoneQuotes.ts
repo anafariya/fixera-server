@@ -4,18 +4,23 @@ import Booking from "../models/booking";
 
 dotenv.config();
 
-const IMMEDIATELY_PAYABLE = new Set(["on_start", "on_milestone_start"]);
-
 const isCustomDatePayable = (m: any): boolean => {
   if (m?.dueCondition !== "custom_date") return false;
   if (!m.customDueDate) return false;
   return new Date(m.customDueDate).getTime() <= Date.now();
 };
 
+const isMilestonePayable = (m: any): boolean => {
+  const cond = m?.dueCondition;
+  if (cond === "on_start") return true;
+  if (cond === "on_milestone_start") {
+    return m.workStatus === "in_progress" || m.workStatus === "completed";
+  }
+  return isCustomDatePayable(m);
+};
+
 const hasPayableMilestone = (milestones: any[]): boolean =>
-  milestones.some(
-    (m) => IMMEDIATELY_PAYABLE.has(m?.dueCondition) || isCustomDatePayable(m)
-  );
+  milestones.some(isMilestonePayable);
 
 async function migrateStuckMilestoneQuotes() {
   const dryRun = process.argv.includes("--dry-run");

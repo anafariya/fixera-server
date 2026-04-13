@@ -2,7 +2,20 @@ import { Request, Response } from "express";
 import { Types } from "mongoose";
 import User from "../../models/user";
 import Project from "../../models/project";
-import ProfessionalLevelConfig from "../../models/professionalLevelConfig";
+import ProfessionalLevelConfig, { IProfessionalLevelConfig } from "../../models/professionalLevelConfig";
+
+const LEVEL_CONFIG_TTL_MS = 5 * 60 * 1000;
+let cachedLevelConfig: IProfessionalLevelConfig | null = null;
+let cachedLevelConfigAt = 0;
+
+const getCachedLevelConfig = async (): Promise<IProfessionalLevelConfig> => {
+  if (cachedLevelConfig && Date.now() - cachedLevelConfigAt < LEVEL_CONFIG_TTL_MS) {
+    return cachedLevelConfig;
+  }
+  cachedLevelConfig = await ProfessionalLevelConfig.getCurrentConfig();
+  cachedLevelConfigAt = Date.now();
+  return cachedLevelConfig;
+};
 import { buildProjectScheduleProposalsWithData } from "../../utils/scheduleEngine";
 
 export { getPopularServices } from "./getPopularServices";
@@ -143,7 +156,7 @@ async function searchProfessionals(
     // Execute query with pagination
     console.log('[SEARCH] Professional filter:', JSON.stringify(filter, null, 2));
 
-    const levelConfig = await ProfessionalLevelConfig.getCurrentConfig();
+    const levelConfig = await getCachedLevelConfig();
     const boostByLevel = new Map<string, number>();
     for (const lvl of levelConfig.levels) {
       boostByLevel.set(lvl.name, lvl.perks?.searchRankingBoost || 1);
