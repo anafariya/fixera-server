@@ -902,11 +902,21 @@ export const submitPostBookingAnswers = async (
       });
     }
 
-    const normalizedAnswers = answers.map((answer) => ({
-      questionId: answer.questionId || "",
-      question: answer.question || "",
-      answer: (answer.answer || "").trim(),
-    }));
+    const normalizedAnswers = answers.map((answer) => {
+      const trimmedAnswer = (answer.answer || "").trim();
+      const clientQuestionId = answer.questionId || "";
+      const matchedQuestion = postBookingQuestions.find((q: any) => {
+        const qId = q._id?.toString() || q.id;
+        if (qId && clientQuestionId === qId) return true;
+        if (q?.question && answer.question === q.question) return true;
+        return false;
+      });
+      return {
+        questionId: matchedQuestion?._id?.toString() || matchedQuestion?.id || clientQuestionId,
+        question: matchedQuestion?.question || answer.question || "",
+        answer: trimmedAnswer,
+      };
+    });
 
     const hasMissingRequired = postBookingQuestions.some((question: any) => {
       if (!question?.isRequired) {
@@ -914,11 +924,11 @@ export const submitPostBookingAnswers = async (
       }
 
       const questionId = question._id?.toString() || question.id;
-      const matched = normalizedAnswers.find((answer) => {
-        if (questionId && answer.questionId === questionId) {
+      const matched = normalizedAnswers.find((a) => {
+        if (questionId && a.questionId === questionId) {
           return true;
         }
-        if (question?.question && answer.question === question.question) {
+        if (question?.question && a.question === question.question) {
           return true;
         }
         return false;
@@ -935,7 +945,7 @@ export const submitPostBookingAnswers = async (
     }
 
     booking.postBookingData = normalizedAnswers.filter(
-      (answer) => answer.answer
+      (a) => a.answer && a.question
     ) as any;
 
     await booking.save();
