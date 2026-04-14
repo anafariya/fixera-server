@@ -98,6 +98,62 @@ const buildPaymentUpsertBase = (booking: any, overrides: Record<string, any> = {
 
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
 
+type CreatePaymentIntentResult = {
+  success: boolean;
+  clientSecret?: string;
+  paymentIntentId?: string;
+  milestoneIndex?: number | null;
+  error?: any;
+};
+
+type NormalizedBookingMilestone = {
+  amount: number;
+  customDueDate?: Date | string;
+  dueCondition?: string;
+  order?: number;
+  status?: string;
+  workStatus?: string;
+  _originalIndex: number;
+};
+
+const normalizeBookingMilestones = (milestones: any[]): NormalizedBookingMilestone[] =>
+  milestones
+    .map((milestone: any, idx: number) => ({
+      ...(milestone?.toObject?.() || milestone),
+      _originalIndex: idx,
+    }))
+    .sort((a: NormalizedBookingMilestone, b: NormalizedBookingMilestone) => (a.order ?? 0) - (b.order ?? 0));
+
+const isMilestoneCurrentlyPayable = (
+  milestone: NormalizedBookingMilestone,
+  sortedMilestones: NormalizedBookingMilestone[]
+): boolean => {
+  if (milestone.status === 'paid') return false;
+
+  const milestoneOrder = milestone.order ?? 0;
+  const hasEarlierUnpaidMilestone = sortedMilestones.some(
+    (candidate) => (candidate.order ?? 0) < milestoneOrder && candidate.status !== 'paid'
+  );
+  if (hasEarlierUnpaidMilestone) return false;
+
+  const dueCondition = milestone.dueCondition;
+  if (dueCondition === 'on_start') return true;
+  if (dueCondition === 'on_milestone_start') {
+    return milestone.workStatus === 'in_progress' || milestone.workStatus === 'completed';
+  }
+  if (dueCondition === 'on_milestone_completion') {
+    return milestone.workStatus === 'completed';
+  }
+  if (dueCondition === 'on_project_completion') {
+    return sortedMilestones.every((candidate) => candidate.workStatus === 'completed');
+  }
+  if (dueCondition === 'custom_date') {
+    return !!milestone.customDueDate && new Date(milestone.customDueDate) <= new Date();
+  }
+
+  return true;
+};
+
 /**
  * Create Payment Intent when customer accepts quote
  * Called from booking respond endpoint
@@ -105,8 +161,9 @@ const clamp = (value: number, min: number, max: number): number => Math.min(Math
 export const createPaymentIntent = async (
   bookingId: string,
   userId: string,
-  pointsToRedeem: number = 0
-): Promise<{ success: boolean; clientSecret?: string; error?: any }> => {
+  pointsToRedeem: number = 0,
+  requestedMilestoneIndex?: number
+): Promise<CreatePaymentIntentResult> => {
   try {
     const booking = await Booking.findById(bookingId)
       .populate('customer')
@@ -136,11 +193,17 @@ export const createPaymentIntent = async (
           }
         };
       }
-      if (booking.payment.status === 'pending' && !hasUnpaidMilestones) {
+      const isMatchingPendingMilestoneIntent =
+        typeof requestedMilestoneIndex === 'number'
+          ? booking.payment.milestoneIndex === requestedMilestoneIndex
+          : true;
+      if (booking.payment.status === 'pending' && isMatchingPendingMilestoneIntent) {
         console.log(`♻️  Reusing existing PaymentIntent for booking ${booking._id}: ${booking.payment.stripePaymentIntentId}`);
         return {
           success: true,
           clientSecret: booking.payment.stripeClientSecret,
+          paymentIntentId: booking.payment.stripePaymentIntentId,
+          milestoneIndex: typeof booking.payment.milestoneIndex === 'number' ? booking.payment.milestoneIndex : null,
         };
       }
     }
@@ -214,29 +277,21 @@ export const createPaymentIntent = async (
     let milestoneIndex: number | null = null;
     let milestoneOrder: number | null = null;
     if (Array.isArray(booking.milestonePayments) && booking.milestonePayments.length > 0) {
-      const sorted = booking.milestonePayments
-        .map((m: any, idx: number) => ({ ...m.toObject?.() || m, _originalIndex: idx }))
-        .sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
-
-      const isPayable = (m: any) => {
-        if (m.status === 'paid') return false;
-        const cond = m.dueCondition;
-        if (cond === 'on_start') return true;
-        if (cond === 'on_milestone_start') return m.workStatus === 'in_progress' || m.workStatus === 'completed';
-        if (cond === 'on_milestone_completion') {
-          return m.workStatus === 'completed';
-        }
-        if (cond === 'on_project_completion') {
-          return sorted.every((s: any) => s.workStatus === 'completed');
-        }
-        if (cond === 'custom_date') {
-          return m.customDueDate && new Date(m.customDueDate) <= new Date();
-        }
-        return true;
-      };
-
-      const nextPayable = sorted.find(isPayable);
+      const sorted = normalizeBookingMilestones(booking.milestonePayments as any[]);
+      const nextPayable = sorted.find((milestone) => isMilestoneCurrentlyPayable(milestone, sorted));
       if (nextPayable) {
+        if (
+          typeof requestedMilestoneIndex === 'number'
+          && nextPayable._originalIndex !== requestedMilestoneIndex
+        ) {
+          return {
+            success: false,
+            error: {
+              code: 'MILESTONE_NOT_DUE',
+              message: 'The selected milestone is not currently due for payment.'
+            }
+          };
+        }
         chargeAmount = nextPayable.amount;
         milestoneIndex = nextPayable._originalIndex;
         milestoneOrder = nextPayable.order ?? 0;
@@ -426,6 +481,8 @@ export const createPaymentIntent = async (
     return {
       success: true,
       clientSecret: paymentIntent.client_secret || undefined,
+      paymentIntentId: paymentIntent.id,
+      milestoneIndex,
     };
 
   } catch (error: any) {

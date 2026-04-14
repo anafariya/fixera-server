@@ -860,8 +860,11 @@ export const ensurePaymentIntent = async (req: Request, res: Response) => {
       });
     }
 
-    // If payment is already authorized or completed, redirect to success
-    if (booking.payment?.status === 'authorized' || booking.payment?.status === 'completed') {
+    const hasUnpaidMilestones = Array.isArray(booking.milestonePayments)
+      && booking.milestonePayments.some((milestone: any) => milestone.status !== 'paid');
+
+    // Only treat the booking as fully paid when all milestones are settled.
+    if ((booking.payment?.status === 'authorized' || booking.payment?.status === 'completed') && !hasUnpaidMilestones) {
       return res.json({
         success: true,
         data: {
@@ -874,8 +877,11 @@ export const ensurePaymentIntent = async (req: Request, res: Response) => {
       });
     }
 
-    // Only allow payment initialization for quote_accepted, payment_pending, or booked status
-    if (!['quote_accepted', 'payment_pending', 'booked'].includes(booking.status)) {
+    const allowedStatuses = hasUnpaidMilestones
+      ? ['quote_accepted', 'payment_pending', 'booked', 'in_progress', 'professional_completed']
+      : ['quote_accepted', 'payment_pending', 'booked'];
+
+    if (!allowedStatuses.includes(booking.status)) {
       return res.status(400).json({
         success: false,
         error: {
@@ -885,8 +891,7 @@ export const ensurePaymentIntent = async (req: Request, res: Response) => {
       });
     }
 
-    // If client secret exists and payment is not failed or refunded, return existing secret
-    if (booking.payment?.stripeClientSecret && !['failed', 'refunded'].includes(booking.payment.status)) {
+    if (booking.payment?.stripeClientSecret && booking.payment.status === 'pending') {
       return res.json({
         success: true,
         data: {
