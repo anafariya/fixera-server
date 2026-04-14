@@ -908,20 +908,34 @@ export const submitPostBookingAnswers = async (
     }
 
     const normalizedAnswers = answers.map((answer) => {
-      const trimmedAnswer = (answer.answer || "").trim();
-      const clientQuestionId = answer.questionId || "";
+      const rawAnswer = answer.answer;
+      const trimmedAnswer = (typeof rawAnswer === "string" ? rawAnswer : String(rawAnswer ?? "")).trim();
+      const rawQuestionId = answer.questionId;
+      const clientQuestionId = typeof rawQuestionId === "string" ? rawQuestionId : String(rawQuestionId ?? "");
+      const rawQuestion = answer.question;
+      const clientQuestion = typeof rawQuestion === "string" ? rawQuestion : String(rawQuestion ?? "");
       const matchedQuestion = postBookingQuestions.find((q: any) => {
         const qId = q._id?.toString() || q.id;
         if (qId && clientQuestionId === qId) return true;
-        if (q?.question && answer.question === q.question) return true;
+        if (q?.question && clientQuestion === q.question) return true;
         return false;
       });
       return {
         questionId: matchedQuestion?._id?.toString() || matchedQuestion?.id || clientQuestionId,
-        question: matchedQuestion?.question || answer.question || "",
+        question: matchedQuestion?.question || clientQuestion,
         answer: trimmedAnswer,
       };
     });
+
+    const unresolvedAnswers = normalizedAnswers.filter(
+      (a) => a.answer && (!a.questionId || !a.question)
+    );
+    if (unresolvedAnswers.length > 0) {
+      return res.status(400).json({
+        success: false,
+        msg: `Could not resolve ${unresolvedAnswers.length} answer(s) to a valid question`,
+      });
+    }
 
     const hasMissingRequired = postBookingQuestions.some((question: any) => {
       if (!question?.isRequired) {
@@ -950,7 +964,7 @@ export const submitPostBookingAnswers = async (
     }
 
     booking.postBookingData = normalizedAnswers.filter(
-      (a) => a.answer && a.question
+      (a) => a.answer && a.question && a.questionId
     ) as any;
 
     await booking.save();
