@@ -1,5 +1,5 @@
 import mongoose, { Schema, model, Document, Types } from "mongoose";
-import { getNextSequence, resyncCounter } from "../utils/counterSequence";
+import { getNextSequence } from "../utils/counterSequence";
 
 export type BookingStatus =
   | 'rfq'           // Request for Quote - Initial state when customer requests
@@ -1157,32 +1157,6 @@ BookingSchema.pre('save', async function(next) {
   }
 
   next();
-});
-
-BookingSchema.post('save', async function(error: any, doc: any, next: any) {
-  if (error?.code === 11000 && error?.keyPattern?.bookingNumber) {
-    const year = new Date().getFullYear();
-    try {
-      doc.bookingNumber = await resyncCounter(`bookingNumber-${year}`, `BK-${year}`);
-      await doc.save();
-      next();
-    } catch (retryErr) {
-      next(retryErr);
-    }
-    return;
-  }
-  if (error?.code === 11000 && error?.keyPattern?.quotationNumber) {
-    const year = new Date().getFullYear();
-    try {
-      doc.quotationNumber = await resyncCounter(`quotationNumber-${year}`, `QT-${year}`);
-      await doc.save();
-      next();
-    } catch (retryErr) {
-      next(retryErr);
-    }
-    return;
-  }
-  next(error);
 });
 
 // Method to update status with history tracking

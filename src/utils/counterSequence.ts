@@ -33,21 +33,26 @@ export const resyncCounter = async (key: string, prefix: string): Promise<string
     .limit(1)
     .toArray();
 
-  let maxSeq = 0;
+  let latestPersistedSeq = 0;
   if (latest) {
     const match = (latest[field] as string).match(regex);
     if (match) {
-      maxSeq = parseInt(match[1], 10);
+      latestPersistedSeq = parseInt(match[1], 10);
     }
   }
 
-  const nextSeq = maxSeq + 1;
   const countersCollection = db.collection<{ _id: string; seq: number }>('counters');
-  await countersCollection.updateOne(
+  const counter = await countersCollection.findOneAndUpdate(
     { _id: key },
-    { $max: { seq: nextSeq } },
-    { upsert: true }
+    [
+      { $set: { seq: { $add: [{ $max: [{ $ifNull: ['$seq', 0] }, latestPersistedSeq] }, 1] } } },
+    ],
+    { upsert: true, returnDocument: 'after' }
   );
 
-  return `${prefix}-${String(nextSeq).padStart(6, '0')}`;
+  const seq = counter?.seq;
+  if (!seq) {
+    throw new Error(`Failed to resync ${key}: counter returned ${JSON.stringify(counter)}`);
+  }
+  return `${prefix}-${String(seq).padStart(6, '0')}`;
 };
