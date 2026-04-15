@@ -12,18 +12,27 @@ const getMaxExistingSeq = async (
   prefix: string
 ): Promise<number> => {
   const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp(`^${escapedPrefix}-(\\d+)$`);
+  const regexPattern = `^${escapedPrefix}-(\\d+)$`;
 
-  const [latest] = await db.collection('bookings')
-    .find({ [field]: { $regex: regex } })
-    .sort({ [field]: -1 })
-    .limit(1)
-    .toArray();
+  const [result] = await db.collection('bookings').aggregate([
+    { $match: { [field]: { $regex: regexPattern } } },
+    {
+      $project: {
+        numericSeq: {
+          $toInt: {
+            $arrayElemAt: [
+              { $getField: { field: 'captures', input: { $regexFind: { input: `$${field}`, regex: regexPattern } } } },
+              0,
+            ],
+          },
+        },
+      },
+    },
+    { $sort: { numericSeq: -1 } },
+    { $limit: 1 },
+  ]).toArray();
 
-  if (!latest) return 0;
-
-  const match = (latest[field] as string).match(regex);
-  return match ? parseInt(match[1], 10) : 0;
+  return result?.numericSeq ?? 0;
 };
 
 export const getNextSequence = async (key: string, prefix: string): Promise<string> => {
