@@ -10,7 +10,6 @@ import {
 } from "../../utils/scheduleEngine";
 import { presignS3Url, uploadToS3, generateFileName } from "../../utils/s3Upload";
 import { resolveSubprojectIndex } from "../../utils/bookingHelpers";
-import { saveBookingWithRetry } from "../../utils/saveBookingWithRetry";
 
 const presignMaybeS3Url = async (url?: string | null) => {
   if (!url) return url;
@@ -603,8 +602,7 @@ export const createBooking = async (req: Request, res: Response, next: NextFunct
       }
     }
 
-    const booking = new Booking(bookingData);
-    await saveBookingWithRetry(booking);
+    const booking = await Booking.create(bookingData);
 
     // Populate references for response
     await booking.populate([

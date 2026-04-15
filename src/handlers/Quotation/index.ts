@@ -13,7 +13,6 @@ import ChatMessage from '../../models/chatMessage';
 import PlatformSettings from '../../models/platformSettings';
 import { addWorkingDays } from '../../utils/workingDays';
 import { getNextSequence } from '../../utils/counterSequence';
-import { saveBookingWithRetry } from '../../utils/saveBookingWithRetry';
 import { createPaymentIntent } from '../Stripe/payment';
 import {
   sendRfqAcceptedEmail,
@@ -376,7 +375,7 @@ export const submitQuotation = async (req: Request, res: Response) => {
     }
     booking.quoteVersions[0].quotationNumber = `${booking.quotationNumber}-v${versionNumber}`;
 
-    await saveBookingWithRetry(booking);
+    await booking.save();
 
     const customer = booking.customer as any;
     const professional = booking.professional as any;
