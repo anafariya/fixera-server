@@ -725,20 +725,28 @@ export const getMyBookings = async (req: Request, res: Response, next: NextFunct
       }
     }
 
-    // Filter by service type
+    // Filter by service type (matches project.service, not rfqData.serviceType)
     if (service && typeof service === 'string') {
-      query['rfqData.serviceType'] = service;
+      const matchingProjectIds = await Project.find({ service }).select("_id");
+      if (matchingProjectIds.length > 0) {
+        query.project = { $in: matchingProjectIds.map(p => p._id) };
+      } else {
+        query.project = null;
+      }
     }
 
-    // Text search across customer name, service type, and description
     if (search && typeof search === 'string') {
       const regex = new RegExp(search, 'i');
-      query.$and = (query.$and || []).concat([{
-        $or: [
-          { 'rfqData.serviceType': regex },
-          { 'rfqData.description': regex },
-        ]
-      }]);
+      const matchingCustomerIds = await User.find({ name: regex }).select("_id");
+      const searchOr: any[] = [
+        { 'rfqData.serviceType': regex },
+        { 'rfqData.description': regex },
+        { bookingNumber: regex },
+      ];
+      if (matchingCustomerIds.length > 0) {
+        searchOr.push({ customer: { $in: matchingCustomerIds.map(c => c._id) } });
+      }
+      query.$and = (query.$and || []).concat([{ $or: searchOr }]);
     }
 
     const skip = (Number(page) - 1) * Number(limit);
@@ -755,7 +763,7 @@ export const getMyBookings = async (req: Request, res: Response, next: NextFunct
       ];
     }
 
-    const [bookings, total, distinctServices] = await Promise.all([
+    const [bookings, total] = await Promise.all([
       Booking.find(query)
         .populate('customer', 'name email phone customerType')
         .populate('professional', 'name email username businessInfo')
@@ -764,8 +772,14 @@ export const getMyBookings = async (req: Request, res: Response, next: NextFunct
         .skip(skip)
         .limit(Number(limit)),
       Booking.countDocuments(query),
-      Booking.distinct('rfqData.serviceType', roleFilter)
     ]);
+
+    const roleProjectIds = user.role === 'customer'
+      ? (await Booking.distinct('project', roleFilter)).filter(Boolean)
+      : (await Project.find({ professionalId: userId }).select("_id")).map(p => p._id);
+    const distinctServices: string[] = roleProjectIds.length > 0
+      ? await Project.distinct('service', { _id: { $in: roleProjectIds } })
+      : [];
 
     return res.status(200).json({
       success: true,

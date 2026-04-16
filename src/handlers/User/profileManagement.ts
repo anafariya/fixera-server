@@ -10,6 +10,7 @@ import { formatVATNumber, isValidVATFormat, validateVATNumber } from "../../util
 import { NO_PREVIOUS_VALUE, normalizePendingIdChanges } from "../../utils/pendingIdChanges";
 import { isValidUsernameFormat, isTooSimilarToCompanyName, generateUsernameSuggestions } from "../../utils/usernameUtils";
 import { sendProfessionalWelcomeEmail } from "../../utils/emailService";
+import ServiceConfiguration from "../../models/serviceConfiguration";
 
 const phoneUtil = PhoneNumberUtil.getInstance();
 
@@ -320,7 +321,13 @@ export const updateProfessionalProfile = async (req: Request, res: Response, nex
           msg: "Service categories must be an array"
         });
       }
-      user.serviceCategories = serviceCategories;
+      const profCountry = user.businessInfo?.country || businessInfo?.country || 'BE';
+      const activeConfigs = await ServiceConfiguration.find({
+        isActive: true,
+        activeCountries: profCountry,
+      }).select('service').lean();
+      const validServices = new Set(activeConfigs.map((c: any) => c.service));
+      user.serviceCategories = serviceCategories.filter((s: string) => validServices.has(s));
     }
 
     if (availability) {

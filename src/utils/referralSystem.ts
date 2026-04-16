@@ -142,7 +142,6 @@ export const processReferralCompletion = async (
     return { completed: false, error: 'Booking amount below minimum threshold' };
   }
 
-  // Atomically claim the pending referral to prevent duplicate processing
   const referral = await Referral.findOneAndUpdate(
     {
       referredUser: userId,
@@ -153,8 +152,6 @@ export const processReferralCompletion = async (
       $set: {
         status: 'completed',
         qualifyingBooking: bookingId,
-        referrerRewardAmount: config.referrerRewardAmount,
-        referrerRewardIssuedAt: new Date()
       }
     },
     { new: true }
@@ -164,19 +161,42 @@ export const processReferralCompletion = async (
     return { completed: false, error: 'No pending referral found' };
   }
 
-  // Check if referrer account still exists and is active
   const referrer = await User.findById(referral.referrer);
   if (!referrer) {
     return { completed: true };
   }
 
-  // Issue points reward to referrer — revert referral status on failure
+  const rewardAmount = referrer.role === 'professional'
+    ? config.referrerProfessionalRewardAmount
+    : config.referrerCustomerRewardAmount;
+  const rewardType: 'customer_credit' | 'professional_level_boost' = referrer.role === 'professional'
+    ? 'professional_level_boost'
+    : 'customer_credit';
+
+  await Referral.findByIdAndUpdate(referral._id, {
+    $set: {
+      referrerRewardAmount: rewardAmount,
+      referrerRewardType: rewardType,
+      referrerRewardIssuedAt: new Date()
+    }
+  });
+
+  if (rewardAmount <= 0) {
+    await User.findByIdAndUpdate(referral.referrer, { $inc: { completedReferrals: 1 } });
+    console.log(`Referral completed: referrer=${referral.referrer} (${rewardType}), reward amount is 0 — no points issued`);
+    return { completed: true };
+  }
+
   try {
+    const description = referrer.role === 'professional'
+      ? 'Referral reward: level boost points for successful referral'
+      : 'Referral reward: booking credit for successful referral';
+
     await addPoints(
       referral.referrer,
-      config.referrerRewardAmount,
+      rewardAmount,
       'referral',
-      `Referral reward: referred user completed first booking`,
+      description,
       { relatedReferral: referral._id as mongoose.Types.ObjectId, relatedBooking: bookingId }
     );
 
@@ -184,12 +204,11 @@ export const processReferralCompletion = async (
       $inc: { completedReferrals: 1 }
     });
 
-    console.log(`Referral completed: referrer=${referral.referrer} earned ${config.referrerRewardAmount} points for referred user=${userId}`);
+    console.log(`Referral completed: referrer=${referral.referrer} (${rewardType}) earned ${rewardAmount} points for referred user=${userId}`);
   } catch (err) {
-    // Revert referral status so it can be retried
     await Referral.findByIdAndUpdate(referral._id, {
-      $set: { status: 'pending' },
-      $unset: { qualifyingBooking: 1, referrerRewardIssuedAt: 1 }
+      $set: { status: 'pending', referrerRewardAmount: 0 },
+      $unset: { qualifyingBooking: 1, referrerRewardIssuedAt: 1, referrerRewardType: 1 }
     });
     console.error(`Referral completion failed for referrer=${referral.referrer}, reverted to pending:`, err);
     return { completed: false, error: 'Failed to issue points reward' };
