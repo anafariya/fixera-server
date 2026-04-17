@@ -678,6 +678,26 @@ export const getConversationInfo = async (req: Request, res: Response) => {
           avgProfessionalRating: {
             $avg: "$professionalReview.rating",
           },
+          totalCustomerReviews: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $ne: ["$customerReview.communicationLevel", null] },
+                    { $ne: ["$customerReview.valueOfDelivery", null] },
+                    { $ne: ["$customerReview.qualityOfService", null] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+          totalProfessionalReviews: {
+            $sum: {
+              $cond: [{ $ne: ["$professionalReview.rating", null] }, 1, 0],
+            },
+          },
         },
       },
     ]),
@@ -691,7 +711,7 @@ export const getConversationInfo = async (req: Request, res: Response) => {
       .limit(10)
       .lean(),
     User.findById(professionalId)
-      .select("professionalLevel companyBlockedRanges companyBlockedDates blockedRanges blockedDates")
+      .select("professionalLevel adminTags companyBlockedRanges companyBlockedDates blockedRanges blockedDates")
       .lean(),
   ]);
 
@@ -702,6 +722,8 @@ export const getConversationInfo = async (req: Request, res: Response) => {
     avgValueOfDelivery: 0,
     avgQualityOfService: 0,
     avgProfessionalRating: 0,
+    totalCustomerReviews: 0,
+    totalProfessionalReviews: 0,
   };
 
   const avgCom = stats.avgCommunication || 0;
@@ -778,7 +800,10 @@ export const getConversationInfo = async (req: Request, res: Response) => {
         avgValueOfDelivery: Math.round(avgVal * 10) / 10,
         avgQualityOfService: Math.round(avgQual * 10) / 10,
         avgProfessionalRating: Math.round((stats.avgProfessionalRating || 0) * 10) / 10,
+        totalCustomerReviews: stats.totalCustomerReviews || 0,
+        totalProfessionalReviews: stats.totalProfessionalReviews || 0,
         professionalLevel: professional?.professionalLevel || "New",
+        adminTags: professional?.adminTags || [],
         avgResponseTimeMs: Math.round(avgResponseTimeMs),
         pendingBookings: pendingBookings.map((b: any) => ({
           bookingId: b._id?.toString?.() || null,

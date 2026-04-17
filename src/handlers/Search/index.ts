@@ -46,6 +46,14 @@ import { aggregateProfessionalRatings, aggregateProjectRatings } from "./aggrega
  * Unified search endpoint for professionals and projects
  * Supports filtering by query, location, price range, category, and availability
  */
+const parseCsv = (value: unknown): string[] => {
+  if (typeof value !== "string") return [];
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+};
+
 export const search = async (req: Request, res: Response) => {
   try {
     const {
@@ -64,9 +72,19 @@ export const search = async (req: Request, res: Response) => {
       customerAddress,
       page = "1",
       limit = "20",
+      sortBy,
+      professionalLevels,
+      adminTags,
+      minRating,
     } = req.query;
 
-    console.log("Search request:", { q, loc, type, priceMin, priceMax, category, availability, customerLat, customerLon, customerCountry, customerState, customerCity, customerAddress, page, limit });
+    const levelsList = parseCsv(professionalLevels);
+    const tagsList = parseCsv(adminTags);
+    const minRatingNum = typeof minRating === "string" ? parseFloat(minRating) : NaN;
+    const minRatingValue = Number.isFinite(minRatingNum) && minRatingNum > 0 ? minRatingNum : 0;
+    const sortByValue = typeof sortBy === "string" ? sortBy : undefined;
+
+    console.log("Search request:", { q, loc, type, priceMin, priceMax, category, availability, customerLat, customerLon, customerCountry, customerState, customerCity, customerAddress, page, limit, sortBy: sortByValue, professionalLevels: levelsList, adminTags: tagsList, minRating: minRatingValue });
 
     const pageNum = parseInt(page as string, 10);
     const limitNum = parseInt(limit as string, 10);
@@ -81,6 +99,9 @@ export const search = async (req: Request, res: Response) => {
         priceMax as string | undefined,
         category as string | undefined,
         availability as string | undefined,
+        levelsList,
+        tagsList,
+        sortByValue,
         skip,
         limitNum
       );
@@ -98,6 +119,10 @@ export const search = async (req: Request, res: Response) => {
         customerState as string | undefined,
         customerCity as string | undefined,
         customerAddress as string | undefined,
+        levelsList,
+        tagsList,
+        minRatingValue,
+        sortByValue,
         skip,
         limitNum
       );
@@ -121,6 +146,9 @@ async function searchProfessionals(
   priceMax: string | undefined,
   category: string | undefined,
   availability: string | undefined,
+  professionalLevels: string[],
+  adminTags: string[],
+  sortBy: string | undefined,
   skip: number,
   limit: number
 ) {
@@ -130,6 +158,14 @@ async function searchProfessionals(
       role: "professional",
       professionalStatus: "approved",
     };
+
+    if (professionalLevels.length > 0) {
+      filter.professionalLevel = { $in: professionalLevels };
+    }
+
+    if (adminTags.length > 0) {
+      filter.adminTags = { $in: adminTags };
+    }
 
     // Search query - search in name, company name, and service categories
     if (query && query.trim()) {
@@ -217,42 +253,75 @@ async function searchProfessionals(
         : { rankingBoost: -1, createdAt: -1 },
     };
 
-    const pipeline: any[] = [
-      { $match: filter },
-      {
-        $facet: {
-          results: [
-            rankingAddFields,
-            rankingSort,
-            { $skip: skip },
-            { $limit: limit },
-            {
-              $project: {
-                name: 1,
-                username: 1,
-                email: 1,
-                "businessInfo.description": 1,
-                "businessInfo.city": 1,
-                "businessInfo.country": 1,
-                "businessInfo.website": 1,
-                hourlyRate: 1,
-                currency: 1,
-                serviceCategories: 1,
-                profileImage: 1,
-                companyAvailability: 1,
-                professionalLevel: 1,
-                createdAt: 1,
-              },
-            },
-          ],
-          total: [{ $count: "count" }],
-        },
+    const projectStage = {
+      $project: {
+        name: 1,
+        username: 1,
+        email: 1,
+        "businessInfo.description": 1,
+        "businessInfo.city": 1,
+        "businessInfo.country": 1,
+        "businessInfo.website": 1,
+        hourlyRate: 1,
+        currency: 1,
+        serviceCategories: 1,
+        profileImage: 1,
+        companyAvailability: 1,
+        professionalLevel: 1,
+        adminTags: 1,
+        createdAt: 1,
       },
-    ];
+    };
 
-    const [aggResult] = await User.aggregate(pipeline);
-    const professionals: any[] = aggResult?.results ?? [];
-    const total: number = aggResult?.total?.[0]?.count ?? 0;
+    const isPopularitySort = sortBy === "popularity";
+    let professionals: any[] = [];
+    let total = 0;
+
+    if (isPopularitySort) {
+      const POPULARITY_CAP = 500;
+      const pipeline: any[] = [
+        { $match: filter },
+        rankingAddFields,
+        rankingSort,
+        { $limit: POPULARITY_CAP },
+        projectStage,
+      ];
+      const all = await User.aggregate(pipeline);
+      if (all.length >= POPULARITY_CAP) {
+        console.warn(
+          `[Search Performance] Popularity sort hit the ${POPULARITY_CAP}-row cap. ` +
+          `Consider denormalizing totalReviews on the user document.`
+        );
+      }
+      const allIds = all.map((p: any) => p._id);
+      const allRatings = await aggregateProfessionalRatings(allIds);
+      all.sort((a: any, b: any) => {
+        const aRev = allRatings.get(a._id.toString())?.totalReviews || 0;
+        const bRev = allRatings.get(b._id.toString())?.totalReviews || 0;
+        return bRev - aRev;
+      });
+      total = all.length;
+      professionals = all.slice(skip, skip + limit);
+    } else {
+      const pipeline: any[] = [
+        { $match: filter },
+        {
+          $facet: {
+            results: [
+              rankingAddFields,
+              rankingSort,
+              { $skip: skip },
+              { $limit: limit },
+              projectStage,
+            ],
+            total: [{ $count: "count" }],
+          },
+        },
+      ];
+      const [aggResult] = await User.aggregate(pipeline);
+      professionals = aggResult?.results ?? [];
+      total = aggResult?.total?.[0]?.count ?? 0;
+    }
 
     console.log('[SEARCH] Found', total, 'professionals, returning', professionals.length);
 
@@ -308,6 +377,10 @@ async function searchProjects(
   customerState: string | undefined,
   customerCity: string | undefined,
   customerAddress: string | undefined,
+  professionalLevels: string[],
+  adminTags: string[],
+  minRating: number,
+  sortBy: string | undefined,
   skip: number,
   limit: number
 ) {
@@ -316,6 +389,24 @@ async function searchProjects(
     const filter: any = {
       status: "published",
     };
+
+    if (professionalLevels.length > 0 || adminTags.length > 0) {
+      const proFilter: any = { role: "professional", professionalStatus: "approved" };
+      if (professionalLevels.length > 0) proFilter.professionalLevel = { $in: professionalLevels };
+      if (adminTags.length > 0) proFilter.adminTags = { $in: adminTags };
+      const matchedPros = await User.find(proFilter).distinct("_id");
+      filter.professionalId = { $in: matchedPros };
+      if (matchedPros.length === 0) {
+        return res.json({
+          results: [],
+          pagination: { total: 0, page: Math.ceil(skip / limit) + 1, limit, totalPages: 0 },
+        });
+      }
+    }
+
+    const isPopularitySort = sortBy === "popularity";
+    const needsFullSet = minRating > 0 || isPopularitySort;
+    const PROJECT_CAP = 500;
 
     // Search query - search in title, description, category, and service
     if (query && query.trim()) {
@@ -532,16 +623,28 @@ async function searchProjects(
         },
       });
 
-      geoPipeline.push({
-        $facet: {
-          results: [{ $skip: skip }, { $limit: limit }],
-          total: [{ $count: "count" }],
-        },
-      });
+      if (needsFullSet) {
+        geoPipeline.push({ $limit: PROJECT_CAP });
+        projects = await Project.aggregate(geoPipeline);
+        total = projects.length;
+        if (projects.length >= PROJECT_CAP) {
+          console.warn(
+            `[Search Performance] Project popularity/rating sort hit the ${PROJECT_CAP}-row cap (geo). ` +
+            `Consider denormalizing project rating stats.`
+          );
+        }
+      } else {
+        geoPipeline.push({
+          $facet: {
+            results: [{ $skip: skip }, { $limit: limit }],
+            total: [{ $count: "count" }],
+          },
+        });
 
-      const [geoResult] = await Project.aggregate(geoPipeline);
-      projects = geoResult?.results ?? [];
-      total = geoResult?.total?.[0]?.count ?? 0;
+        const [geoResult] = await Project.aggregate(geoPipeline);
+        projects = geoResult?.results ?? [];
+        total = geoResult?.total?.[0]?.count ?? 0;
+      }
     } else if (hasLocationFilter) {
       projects = await baseQuery.lean();
       total = projects.length;
@@ -550,6 +653,15 @@ async function searchProjects(
         console.warn(
           `[Search Performance] Location filter returned ${total} projects for in-memory filtering. ` +
           `Consider implementing geospatial indexes for better scalability.`
+        );
+      }
+    } else if (needsFullSet) {
+      projects = await Project.find(filter).sort({ createdAt: -1 }).limit(PROJECT_CAP).lean();
+      total = projects.length;
+      if (projects.length >= PROJECT_CAP) {
+        console.warn(
+          `[Search Performance] Project popularity/rating sort hit the ${PROJECT_CAP}-row cap. ` +
+          `Consider denormalizing project rating stats.`
         );
       }
     } else {
@@ -605,9 +717,30 @@ async function searchProjects(
       }
     }
 
-    const baseResults = filteredResults ?? projects;
-    const totalCount = filteredResults ? baseResults.length : total;
-    const finalResults = filteredResults ? baseResults.slice(skip, skip + limit) : baseResults;
+    let baseResults: any[] = filteredResults ?? projects;
+    let projectRatingMap: Map<string, { avgRating: number; totalReviews: number }> | null = null;
+
+    if (needsFullSet) {
+      const workingIds = baseResults.map((p: any) => p._id).filter(Boolean);
+      projectRatingMap = await aggregateProjectRatings(workingIds);
+      if (minRating > 0) {
+        baseResults = baseResults.filter((p: any) => {
+          const r = projectRatingMap!.get(p._id?.toString());
+          return (r?.avgRating || 0) >= minRating;
+        });
+      }
+      if (isPopularitySort) {
+        baseResults.sort((a: any, b: any) => {
+          const aR = projectRatingMap!.get(a._id?.toString())?.totalReviews || 0;
+          const bR = projectRatingMap!.get(b._id?.toString())?.totalReviews || 0;
+          return bR - aR;
+        });
+      }
+    }
+
+    const isPaginatedInMemory = Boolean(filteredResults) || needsFullSet;
+    const totalCount = isPaginatedInMemory ? baseResults.length : total;
+    const finalResults = isPaginatedInMemory ? baseResults.slice(skip, skip + limit) : baseResults;
 
     // Batch-load professionals to avoid N+1 queries
     const professionalIdSet = new Set(
@@ -621,14 +754,16 @@ async function searchProjects(
     const professionalsData = professionalIds.length > 0
       ? await User.find({ _id: { $in: professionalIds } })
         .select(
-          "name username email businessInfo.description businessInfo.city businessInfo.country businessInfo.website hourlyRate currency profileImage companyAvailability companyBlockedDates companyBlockedRanges"
+          "name username email businessInfo.description businessInfo.city businessInfo.country businessInfo.website hourlyRate currency profileImage professionalLevel adminTags createdAt companyAvailability companyBlockedDates companyBlockedRanges"
         )
         .lean()
       : [];
 
     // Aggregate ratings per project (not per professional)
-    const projectIds = finalResults.map((p: any) => p._id).filter(Boolean);
-    const projectRatingMap = await aggregateProjectRatings(projectIds);
+    if (!projectRatingMap) {
+      const projectIds = finalResults.map((p: any) => p._id).filter(Boolean);
+      projectRatingMap = await aggregateProjectRatings(projectIds);
+    }
 
     // Create a lookup map for quick access
     const professionalMap = new Map(
@@ -664,6 +799,9 @@ async function searchProjects(
             hourlyRate: professional.hourlyRate,
             currency: professional.currency,
             profileImage: professional.profileImage,
+            professionalLevel: professional.professionalLevel,
+            adminTags: professional.adminTags || [],
+            createdAt: professional.createdAt,
             avgRating: projectRatings.avgRating,
             totalReviews: projectRatings.totalReviews,
           };

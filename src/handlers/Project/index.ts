@@ -5,6 +5,7 @@ import Project from "../../models/project";
 import Booking from "../../models/booking";
 import ServiceCategory from "../../models/serviceCategory";
 import User from "../../models/user";
+import ChatMessage from "../../models/chatMessage";
 import {
   buildProjectScheduleProposals,
   buildProjectScheduleWindow,
@@ -44,6 +45,99 @@ const toBlockedRange = (range?: {
     endDate,
     reason: range.reason,
   };
+};
+
+const computeProfessionalStats = async (professionalId: string) => {
+  try {
+    const profObjectId = new mongoose.Types.ObjectId(professionalId);
+    const [reviewAgg] = await Booking.aggregate([
+      {
+        $match: {
+          professional: profObjectId,
+          status: "completed",
+          "customerReview.communicationLevel": { $exists: true, $ne: null },
+          "customerReview.valueOfDelivery": { $exists: true, $ne: null },
+          "customerReview.qualityOfService": { $exists: true, $ne: null },
+          "customerReview.isHidden": { $ne: true },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          avgCommunication: { $avg: "$customerReview.communicationLevel" },
+          avgValueOfDelivery: { $avg: "$customerReview.valueOfDelivery" },
+          avgQualityOfService: { $avg: "$customerReview.qualityOfService" },
+          totalReviews: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const avgCom = reviewAgg?.avgCommunication || 0;
+    const avgVal = reviewAgg?.avgValueOfDelivery || 0;
+    const avgQual = reviewAgg?.avgQualityOfService || 0;
+    const totalReviews = reviewAgg?.totalReviews || 0;
+    const hasRatings = avgCom > 0 || avgVal > 0 || avgQual > 0;
+    const avgRating = hasRatings ? (avgCom + avgVal + avgQual) / 3 : 0;
+
+    let avgResponseTimeMs = 0;
+    try {
+      const proConvoIds = await ChatMessage.distinct("conversationId", { senderId: profObjectId });
+      if (proConvoIds.length > 0) {
+        const cursor = ChatMessage.find(
+          { conversationId: { $in: proConvoIds } },
+          { conversationId: 1, senderRole: 1, createdAt: 1 }
+        )
+          .sort({ conversationId: 1, _id: 1 })
+          .cursor();
+
+        const prevRoleByConvo = new Map<string, string>();
+        const prevTimeByConvo = new Map<string, number>();
+        let totalResponseMs = 0;
+        let responseCount = 0;
+
+        for await (const doc of cursor) {
+          const convoId = doc.conversationId.toString();
+          const role = doc.senderRole;
+          const time = new Date(doc.createdAt).getTime();
+          const prevRole = prevRoleByConvo.get(convoId);
+          const prevTime = prevTimeByConvo.get(convoId) || 0;
+          if (role === "professional" && prevRole === "customer") {
+            const diff = time - prevTime;
+            if (diff > 0) {
+              totalResponseMs += diff;
+              responseCount++;
+            }
+          }
+          prevRoleByConvo.set(convoId, role);
+          prevTimeByConvo.set(convoId, time);
+        }
+
+        if (responseCount > 0) {
+          avgResponseTimeMs = totalResponseMs / responseCount;
+        }
+      }
+    } catch {
+      // non-critical
+    }
+
+    return {
+      avgRating: Math.round(avgRating * 10) / 10,
+      totalReviews,
+      avgCommunication: Math.round(avgCom * 10) / 10,
+      avgValueOfDelivery: Math.round(avgVal * 10) / 10,
+      avgQualityOfService: Math.round(avgQual * 10) / 10,
+      avgResponseTimeMs: Math.round(avgResponseTimeMs),
+    };
+  } catch {
+    return {
+      avgRating: 0,
+      totalReviews: 0,
+      avgCommunication: 0,
+      avgValueOfDelivery: 0,
+      avgQualityOfService: 0,
+      avgResponseTimeMs: 0,
+    };
+  }
 };
 
 const serializePublicProject = (project: any) => {
@@ -398,7 +492,10 @@ export const getPublishedProject = async (req: Request, res: Response) => {
     const project = await Project.findOne({
       _id: id,
       status: "published",
-    }).populate('professionalId', 'name username businessInfo.companyName businessInfo.timezone email phone companyAvailability companyBlockedRanges');
+    }).populate(
+      'professionalId',
+      'name username businessInfo.companyName businessInfo.timezone businessInfo.city businessInfo.country email phone profileImage professionalLevel adminTags createdAt companyAvailability companyBlockedRanges'
+    );
 
     if (!project) {
       return res.status(404).json({
@@ -407,9 +504,15 @@ export const getPublishedProject = async (req: Request, res: Response) => {
       });
     }
 
+    const professionalId = (project.professionalId as any)?._id || project.professionalId;
+    const professionalStats = professionalId
+      ? await computeProfessionalStats(professionalId.toString())
+      : null;
+
+    const serialized = serializePublicProject(project);
     res.json({
       success: true,
-      project: serializePublicProject(project)
+      project: { ...serialized, professionalStats }
     });
   } catch (error) {
     console.error('Error fetching published project:', error);
