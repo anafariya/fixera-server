@@ -832,8 +832,6 @@ async function searchProjects(
             professionalLevel: professional.professionalLevel,
             adminTags: professional.adminTags || [],
             createdAt: professional.createdAt,
-            avgRating: projectRatings.avgRating,
-            totalReviews: projectRatings.totalReviews,
           };
 
           // Get main project availability - use first subproject
@@ -895,6 +893,8 @@ async function searchProjects(
           return {
             ...project,
             professionalId: professionalSummary,
+            projectAvgRating: projectRatings.avgRating,
+            projectTotalReviews: projectRatings.totalReviews,
             subprojects: subprojectsWithAvailability,
             firstAvailableDate: proposals?.earliestBookableDate || null,
             firstAvailableWindow: proposals?.earliestProposal
