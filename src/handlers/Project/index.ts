@@ -99,25 +99,23 @@ const computeProfessionalStats = async (professionalId: string): Promise<Profess
     let avgResponseTimeMs = 0;
     try {
       const proConvoIds = await ChatMessage.distinct("conversationId", { senderId: profObjectId });
-      if (proConvoIds.length > 0) {
+      let totalResponseMs = 0;
+      let responseCount = 0;
+
+      for (const convoId of proConvoIds) {
         const cursor = ChatMessage.find(
-          { conversationId: { $in: proConvoIds } },
-          { conversationId: 1, senderRole: 1, createdAt: 1 }
+          { conversationId: convoId },
+          { senderRole: 1, createdAt: 1 }
         )
-          .sort({ conversationId: 1, _id: 1 })
+          .sort({ _id: 1 })
           .cursor();
 
-        const prevRoleByConvo = new Map<string, string>();
-        const prevTimeByConvo = new Map<string, number>();
-        let totalResponseMs = 0;
-        let responseCount = 0;
+        let prevRole: string | null = null;
+        let prevTime = 0;
 
         for await (const doc of cursor) {
-          const convoId = doc.conversationId.toString();
           const role = doc.senderRole;
           const time = new Date(doc.createdAt).getTime();
-          const prevRole = prevRoleByConvo.get(convoId);
-          const prevTime = prevTimeByConvo.get(convoId) || 0;
           if (role === "professional" && prevRole === "customer") {
             const diff = time - prevTime;
             if (diff > 0) {
@@ -125,13 +123,13 @@ const computeProfessionalStats = async (professionalId: string): Promise<Profess
               responseCount++;
             }
           }
-          prevRoleByConvo.set(convoId, role);
-          prevTimeByConvo.set(convoId, time);
+          prevRole = role;
+          prevTime = time;
         }
+      }
 
-        if (responseCount > 0) {
-          avgResponseTimeMs = totalResponseMs / responseCount;
-        }
+      if (responseCount > 0) {
+        avgResponseTimeMs = totalResponseMs / responseCount;
       }
     } catch (err) {
       console.warn("[Project] Failed computing avgResponseTime for professional", professionalId, err);
