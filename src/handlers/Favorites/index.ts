@@ -95,11 +95,10 @@ export const listUserFavorites = async (req: Request, res: Response) => {
     }
 
     const targetTypeParam = req.query.targetType as string | undefined;
-    const page = Math.max(parseInt((req.query.page as string) || "1", 10), 1);
-    const limit = Math.min(
-      Math.max(parseInt((req.query.limit as string) || "24", 10), 1),
-      100
-    );
+    const parsedPage = parseInt((req.query.page as string) || "1", 10);
+    const parsedLimit = parseInt((req.query.limit as string) || "24", 10);
+    const page = Math.max(Number.isNaN(parsedPage) ? 1 : parsedPage, 1);
+    const limit = Math.min(Math.max(Number.isNaN(parsedLimit) ? 24 : parsedLimit, 1), 100);
     const skip = (page - 1) * limit;
 
     const filter: any = { user: userId };
