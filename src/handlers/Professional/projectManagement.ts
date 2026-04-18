@@ -253,7 +253,11 @@ export const deleteProject = async (req: Request, res: Response) => {
       });
     }
 
-    await Favorite.deleteMany({ targetType: 'project', targetId: project._id });
+    try {
+      await Favorite.deleteMany({ targetType: 'project', targetId: project._id });
+    } catch (cleanupErr) {
+      console.warn('Favorite cleanup failed after project delete', { projectId: project._id, error: cleanupErr });
+    }
 
     res.status(200).json({
       success: true,

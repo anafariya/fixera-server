@@ -259,7 +259,11 @@ export const deleteProjectByAdmin = async (req: Request, res: Response) => {
 
         // Delete the project
         await Project.findByIdAndDelete(id);
-        await Favorite.deleteMany({ targetType: 'project', targetId: id });
+        try {
+            await Favorite.deleteMany({ targetType: 'project', targetId: id });
+        } catch (cleanupErr) {
+            console.warn('Favorite cleanup failed after admin project delete', { projectId: id, error: cleanupErr });
+        }
 
         // Send email notification
         if (professional && professional.email) {

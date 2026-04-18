@@ -669,6 +669,7 @@ UserSchema.pre("save", function (next) {
     if (this.role !== "professional") {
         this.set("stripe", undefined);
         this.set("onboardingAgreements", undefined);
+        this.set("lastFavoritesViewedAt", undefined);
     }
 
     // Clear fields that employees don't need - they only need:

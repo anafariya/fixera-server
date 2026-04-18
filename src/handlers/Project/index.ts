@@ -24,6 +24,21 @@ import { normalizePreparationDuration } from "../../utils/projectDurations";
 import { computeProjectDiff, determineReapprovalType } from "../../utils/projectDiff";
 // import { seedServiceCategories } from '../../scripts/seedProject';
 
+let cachedWindowFieldsSupport: boolean | null = null;
+const mongoHasWindowFields = async (): Promise<boolean> => {
+  if (cachedWindowFieldsSupport !== null) return cachedWindowFieldsSupport;
+  try {
+    const admin = mongoose.connection.db?.admin();
+    if (!admin) return (cachedWindowFieldsSupport = false);
+    const info = await admin.serverInfo();
+    const major = parseInt(String(info?.version || "0").split(".")[0], 10);
+    cachedWindowFieldsSupport = Number.isFinite(major) && major >= 5;
+  } catch {
+    cachedWindowFieldsSupport = false;
+  }
+  return cachedWindowFieldsSupport;
+};
+
 const toIsoDate = (value?: Date | string | null) => {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -113,26 +128,46 @@ const computeProfessionalStats = async (professionalId: string): Promise<Profess
     try {
       const proConvoIds = await ChatMessage.distinct("conversationId", { senderId: profObjectId });
       if (proConvoIds.length > 0) {
-        const [responseAgg] = await ChatMessage.aggregate([
-          { $match: { conversationId: { $in: proConvoIds } } },
-          { $sort: { conversationId: 1, _id: 1 } },
-          {
-            $setWindowFields: {
-              partitionBy: "$conversationId",
-              sortBy: { _id: 1 },
-              output: {
-                prevSenderRole: { $shift: { output: "$senderRole", by: -1 } },
-                prevCreatedAt: { $shift: { output: "$createdAt", by: -1 } },
+        const supportsWindowFields = await mongoHasWindowFields();
+        if (supportsWindowFields) {
+          const [responseAgg] = await ChatMessage.aggregate([
+            { $match: { conversationId: { $in: proConvoIds } } },
+            { $sort: { conversationId: 1, _id: 1 } },
+            {
+              $setWindowFields: {
+                partitionBy: "$conversationId",
+                sortBy: { _id: 1 },
+                output: {
+                  prevSenderRole: { $shift: { output: "$senderRole", by: -1 } },
+                  prevCreatedAt: { $shift: { output: "$createdAt", by: -1 } },
+                },
               },
             },
-          },
-          { $match: { senderRole: "professional", prevSenderRole: "customer" } },
-          { $project: { diff: { $subtract: ["$createdAt", "$prevCreatedAt"] } } },
-          { $match: { diff: { $gt: 0 } } },
-          { $group: { _id: null, totalMs: { $sum: "$diff" }, count: { $sum: 1 } } },
-        ]);
-        if (responseAgg?.count > 0) {
-          avgResponseTimeMs = responseAgg.totalMs / responseAgg.count;
+            { $match: { senderRole: "professional", prevSenderRole: "customer" } },
+            { $project: { diff: { $subtract: ["$createdAt", "$prevCreatedAt"] } } },
+            { $match: { diff: { $gt: 0 } } },
+            { $group: { _id: null, totalMs: { $sum: "$diff" }, count: { $sum: 1 } } },
+          ]);
+          if (responseAgg?.count > 0) {
+            avgResponseTimeMs = responseAgg.totalMs / responseAgg.count;
+          }
+        } else {
+          const messages = await ChatMessage.find({ conversationId: { $in: proConvoIds } })
+            .sort({ conversationId: 1, _id: 1 })
+            .select("conversationId senderRole createdAt")
+            .lean();
+          let totalMs = 0;
+          let count = 0;
+          let prev: any = null;
+          for (const m of messages) {
+            if (prev && String(prev.conversationId) === String(m.conversationId)
+                && prev.senderRole === "customer" && m.senderRole === "professional") {
+              const diff = new Date(m.createdAt as any).getTime() - new Date(prev.createdAt as any).getTime();
+              if (diff > 0) { totalMs += diff; count += 1; }
+            }
+            prev = m;
+          }
+          if (count > 0) avgResponseTimeMs = totalMs / count;
         }
       }
     } catch (err) {

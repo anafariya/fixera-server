@@ -10,9 +10,25 @@ const parseObjectId = (id: any): mongoose.Types.ObjectId | null => {
   return new mongoose.Types.ObjectId(id);
 };
 
+const FAVORITES_OVERVIEW_TTL_MS = 45 * 1000;
+const overviewCache: { key: string; data: any; expiresAt: number } = {
+  key: "favorites_overview",
+  data: null,
+  expiresAt: 0,
+};
+
+export const invalidateFavoritesOverviewCache = () => {
+  overviewCache.data = null;
+  overviewCache.expiresAt = 0;
+};
+
 export const getFavoritesOverview = async (_req: Request, res: Response) => {
   try {
     await connectToDatabase();
+
+    if (overviewCache.data && Date.now() < overviewCache.expiresAt) {
+      return res.json({ success: true, data: overviewCache.data });
+    }
 
     const [totalsAgg, uniqueCustomersAgg] = await Promise.all([
       Favorite.aggregate([
@@ -142,10 +158,11 @@ export const getFavoritesOverview = async (_req: Request, res: Response) => {
       };
     });
 
-    return res.json({
-      success: true,
-      data: { totals, topProfessionals, topProjects, recent },
-    });
+    const payload = { totals, topProfessionals, topProjects, recent };
+    overviewCache.data = payload;
+    overviewCache.expiresAt = Date.now() + FAVORITES_OVERVIEW_TTL_MS;
+
+    return res.json({ success: true, data: payload });
   } catch (error) {
     console.error("getFavoritesOverview error:", error);
     return res.status(500).json({ success: false, msg: "Failed to fetch overview" });
@@ -242,6 +259,7 @@ export const deleteFavorite = async (req: Request, res: Response) => {
     if (result.deletedCount === 0) {
       return res.status(404).json({ success: false, msg: "Favorite not found" });
     }
+    invalidateFavoritesOverviewCache();
     // TODO: Audit log hook (task 14a) — record admin-initiated favorite deletion.
     return res.json({ success: true });
   } catch (error) {

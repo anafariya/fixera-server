@@ -4,6 +4,7 @@ import Favorite, { FavoriteTargetType } from "../../models/favorite";
 import User from "../../models/user";
 import Project from "../../models/project";
 import connectToDatabase from "../../config/db";
+import { invalidateFavoritesOverviewCache } from "../Admin/favoritesAdmin";
 
 const VALID_TARGET_TYPES: FavoriteTargetType[] = ["professional", "project"];
 
@@ -30,9 +31,13 @@ const verifyTargetExists = async (
 export const toggleFavorite = async (req: Request, res: Response) => {
   try {
     await connectToDatabase();
-    const userId = req.user?.id || (req.user as any)?._id;
-    if (!userId) {
+    const rawUserId = req.user?.id || (req.user as any)?._id;
+    if (!rawUserId) {
       return res.status(401).json({ success: false, msg: "Authentication required" });
+    }
+    const userId = parseObjectId(typeof rawUserId === "string" ? rawUserId : rawUserId.toString());
+    if (!userId) {
+      return res.status(400).json({ success: false, msg: "Invalid user id" });
     }
 
     const { targetType, targetId } = req.body || {};
@@ -73,6 +78,7 @@ export const toggleFavorite = async (req: Request, res: Response) => {
       }
     }
 
+    invalidateFavoritesOverviewCache();
     const count = await Favorite.countDocuments({ targetType, targetId: targetObjectId });
     return res.json({ success: true, data: { favorited, count } });
   } catch (error) {

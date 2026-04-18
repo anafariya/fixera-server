@@ -14,8 +14,7 @@ const favoriteSchema = new Schema<IFavorite>({
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
-    index: true
+    required: true
   },
   targetType: {
     type: String,
