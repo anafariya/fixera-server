@@ -16,9 +16,9 @@ import { updateProfessionalLevel } from '../../utils/professionalLevelSystem';
 import Payment from '../../models/payment';
 import {
   awardBookingCompletionPoints,
-  countUnpaidMilestones,
   ensureWarrantyCoverageSnapshot,
   getProfessionalId,
+  getUnpaidMilestoneCount,
   markMilestonesCompleted,
 } from '../../utils/bookingHelpers';
 
@@ -69,7 +69,7 @@ export const professionalCompleteBooking = async (req: Request, res: Response) =
       });
     }
 
-    const unpaidMilestoneCount = countUnpaidMilestones(booking);
+    const unpaidMilestoneCount = getUnpaidMilestoneCount(booking.milestonePayments);
     if (unpaidMilestoneCount > 0) {
       return res.status(400).json({
         success: false,
@@ -110,8 +110,6 @@ export const professionalCompleteBooking = async (req: Request, res: Response) =
 
     if (Array.isArray(extraCostsInput) && extraCostsInput.length > 0) {
       const project = booking.project as any;
-      const commissionPercent = await getPlatformCommissionPercent();
-      const applyCommission = (net: number) => net * (1 + (commissionPercent || 0) / 100);
 
       for (const cost of extraCostsInput) {
         if (!cost.type || !cost.justification) {
@@ -156,16 +154,21 @@ export const professionalCompleteBooking = async (req: Request, res: Response) =
               error: { code: 'VALIDATION_ERROR', message: `Invalid condition at index ${cost.referenceIndex}` }
             });
           }
-          const conditionNet = Number(condition.additionalCost) || 0;
-          const conditionGross = applyCommission(conditionNet);
+          const conditionNet = Number(condition.additionalCost);
+          if (!Number.isFinite(conditionNet) || conditionNet < 0) {
+            return res.status(400).json({
+              success: false,
+              error: { code: 'VALIDATION_ERROR', message: `Condition at index ${cost.referenceIndex} has an invalid additionalCost` }
+            });
+          }
           validatedExtraCosts.push({
             type: 'condition',
             name: condition.name,
             justification: cost.justification,
-            amount: conditionGross,
+            amount: conditionNet,
             referenceIndex: cost.referenceIndex,
           });
-          extraCostTotal += conditionGross;
+          extraCostTotal += conditionNet;
         } else if (costType === 'option') {
           if (cost.referenceIndex == null) {
             return res.status(400).json({
@@ -180,16 +183,21 @@ export const professionalCompleteBooking = async (req: Request, res: Response) =
               error: { code: 'VALIDATION_ERROR', message: `Invalid option at index ${cost.referenceIndex}` }
             });
           }
-          const optionNet = Number(option.price) || 0;
-          const optionGross = applyCommission(optionNet);
+          const optionNet = Number(option.price);
+          if (!Number.isFinite(optionNet) || optionNet < 0) {
+            return res.status(400).json({
+              success: false,
+              error: { code: 'VALIDATION_ERROR', message: `Option at index ${cost.referenceIndex} has an invalid price` }
+            });
+          }
           validatedExtraCosts.push({
             type: 'option',
             name: option.name,
             justification: cost.justification,
-            amount: optionGross,
+            amount: optionNet,
             referenceIndex: cost.referenceIndex,
           });
-          extraCostTotal += optionGross;
+          extraCostTotal += optionNet;
         } else if (costType === 'other') {
           if (cost.amount == null || cost.name == null) {
             return res.status(400).json({
@@ -464,7 +472,7 @@ export const customerConfirmCompletion = async (req: Request, res: Response) => 
       });
     }
 
-    const unpaidMilestoneCount = countUnpaidMilestones(booking);
+    const unpaidMilestoneCount = getUnpaidMilestoneCount(booking.milestonePayments);
     if (unpaidMilestoneCount > 0) {
       return res.status(400).json({
         success: false,
