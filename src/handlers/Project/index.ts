@@ -84,13 +84,24 @@ const evictExpiredProfessionalStats = () => {
   }
 };
 
+const enforceProfessionalStatsCapacity = () => {
+  while (professionalStatsCache.size > PROFESSIONAL_STATS_CACHE_MAX_SIZE) {
+    const oldestKey = professionalStatsCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    professionalStatsCache.delete(oldestKey);
+  }
+};
+
 const computeProfessionalStats = async (professionalId: string): Promise<ProfessionalStats> => {
   const cached = professionalStatsCache.get(professionalId);
   if (cached && cached.expiresAt > Date.now()) {
+    professionalStatsCache.delete(professionalId);
+    professionalStatsCache.set(professionalId, cached);
     return cached.stats;
   }
   if (professionalStatsCache.size > PROFESSIONAL_STATS_CACHE_MAX_SIZE) {
     evictExpiredProfessionalStats();
+    enforceProfessionalStatsCapacity();
   }
 
   try {
@@ -152,20 +163,32 @@ const computeProfessionalStats = async (professionalId: string): Promise<Profess
             avgResponseTimeMs = responseAgg.totalMs / responseAgg.count;
           }
         } else {
-          const messages = await ChatMessage.find({ conversationId: { $in: proConvoIds } })
-            .sort({ conversationId: 1, _id: 1 })
-            .select("conversationId senderRole createdAt")
-            .lean();
+          const CONVO_BATCH_SIZE = 50;
+          const PER_CONVO_LIMIT = 100;
           let totalMs = 0;
           let count = 0;
-          let prev: any = null;
-          for (const m of messages) {
-            if (prev && String(prev.conversationId) === String(m.conversationId)
-                && prev.senderRole === "customer" && m.senderRole === "professional") {
-              const diff = new Date(m.createdAt as any).getTime() - new Date(prev.createdAt as any).getTime();
-              if (diff > 0) { totalMs += diff; count += 1; }
+          for (let i = 0; i < proConvoIds.length; i += CONVO_BATCH_SIZE) {
+            const batch = proConvoIds.slice(i, i + CONVO_BATCH_SIZE);
+            const perConvo = await Promise.all(
+              batch.map((conversationId) =>
+                ChatMessage.find({ conversationId })
+                  .sort({ conversationId: 1, _id: -1 })
+                  .limit(PER_CONVO_LIMIT)
+                  .select("conversationId senderRole createdAt")
+                  .lean()
+              )
+            );
+            for (const desc of perConvo) {
+              const messages = desc.reverse();
+              let prev: any = null;
+              for (const m of messages) {
+                if (prev && prev.senderRole === "customer" && m.senderRole === "professional") {
+                  const diff = new Date(m.createdAt as any).getTime() - new Date(prev.createdAt as any).getTime();
+                  if (diff > 0) { totalMs += diff; count += 1; }
+                }
+                prev = m;
+              }
             }
-            prev = m;
           }
           if (count > 0) avgResponseTimeMs = totalMs / count;
         }
@@ -182,10 +205,12 @@ const computeProfessionalStats = async (professionalId: string): Promise<Profess
       avgQualityOfService: Math.round(avgQual * 10) / 10,
       avgResponseTimeMs: Math.round(avgResponseTimeMs),
     };
+    professionalStatsCache.delete(professionalId);
     professionalStatsCache.set(professionalId, {
       stats,
       expiresAt: Date.now() + PROFESSIONAL_STATS_TTL_MS,
     });
+    enforceProfessionalStatsCapacity();
     return stats;
   } catch (err) {
     console.warn("[Project] Failed computing professional stats for", professionalId, err);

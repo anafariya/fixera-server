@@ -190,14 +190,18 @@ export const listUserFavorites = async (req: Request, res: Response) => {
       })
       .filter(Boolean);
 
+    const droppedInPage = favorites.length - items.length;
+    const adjustedTotal = Math.max(0, total - droppedInPage);
+    const hasMore = skip + favorites.length < total;
+
     return res.json({
       success: true,
       data: {
         items,
         page,
         limit,
-        total,
-        hasMore: skip + favorites.length < total,
+        total: adjustedTotal,
+        hasMore,
       },
     });
   } catch (error) {
@@ -225,13 +229,16 @@ export const getFavoriteStatusBatch = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, msg: "Maximum 100 targetIds allowed" });
     }
 
-    const objectIds = targetIds
-      .map(parseObjectId)
-      .filter((id): id is mongoose.Types.ObjectId => id !== null);
-
-    if (objectIds.length === 0) {
-      return res.json({ success: true, data: { favorited: {} } });
+    const parsed = targetIds.map(parseObjectId);
+    const invalidIds = targetIds.filter((_id: unknown, i: number) => parsed[i] === null);
+    if (invalidIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        msg: "Invalid targetIds",
+        invalidIds,
+      });
     }
+    const objectIds = parsed as mongoose.Types.ObjectId[];
 
     const favorites = await Favorite.find({
       user: userId,

@@ -183,7 +183,10 @@ export const listAllFavorites = async (req: Request, res: Response) => {
     const skip = (page - 1) * limit;
 
     const filter: any = {};
-    if (targetType === "professional" || targetType === "project") {
+    if (targetType !== undefined) {
+      if (targetType !== "professional" && targetType !== "project") {
+        return res.status(400).json({ success: false, msg: "Invalid targetType" });
+      }
       filter.targetType = targetType;
     }
     if (userId) {
