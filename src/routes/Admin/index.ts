@@ -70,7 +70,6 @@ import {
 } from "../../handlers/Admin/favoritesAdmin";
 import { runWarrantyClaimChecks } from "../../utils/warrantyClaimScheduler";
 import { runRfqDeadlineCheck } from "../../utils/rfqDeadlineScheduler";
-import { runFavoritesDigest } from "../../utils/favoritesDigestScheduler";
 
 const adminRouter = Router();
 
@@ -168,16 +167,6 @@ adminRouter.route('/run-rfq-checks').post(async (_req, res) => {
   } catch (error: any) {
     console.error('[Admin] Manual RFQ check failed:', error);
     return res.status(500).json({ success: false, msg: 'RFQ deadline check failed' });
-  }
-});
-
-adminRouter.route('/run-favorites-digest').post(async (_req, res) => {
-  try {
-    const result = await runFavoritesDigest();
-    return res.json({ success: true, data: result });
-  } catch (error: any) {
-    console.error('[Admin] Favorites digest failed:', error);
-    return res.status(500).json({ success: false, msg: 'Favorites digest failed' });
   }
 });
 

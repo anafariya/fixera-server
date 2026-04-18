@@ -191,7 +191,7 @@ export const listUserFavorites = async (req: Request, res: Response) => {
         page,
         limit,
         total,
-        hasMore: skip + items.length < total,
+        hasMore: skip + favorites.length < total,
       },
     });
   } catch (error) {
@@ -214,6 +214,9 @@ export const getFavoriteStatusBatch = async (req: Request, res: Response) => {
     }
     if (!Array.isArray(targetIds) || targetIds.length === 0) {
       return res.json({ success: true, data: { favorited: {} } });
+    }
+    if (targetIds.length > 100) {
+      return res.status(400).json({ success: false, msg: "Maximum 100 targetIds allowed" });
     }
 
     const objectIds = targetIds
@@ -320,9 +323,8 @@ export const getProfessionalFavoriteStats = async (req: Request, res: Response) 
     const totalProjectsFav = perProject.reduce((sum, p) => sum + p.count, 0);
     const total = profileCount + totalProjectsFav;
 
-    const lastNotifiedAt: Date | undefined = user.lastFavoritesNotifiedAt;
     const lastViewedAt: Date | undefined = user.lastFavoritesViewedAt;
-    const since = lastViewedAt || lastNotifiedAt || null;
+    const since = lastViewedAt || null;
 
     let newSinceLastSeen = 0;
     if (since) {
@@ -337,9 +339,6 @@ export const getProfessionalFavoriteStats = async (req: Request, res: Response) 
       newSinceLastSeen = total;
     }
 
-    const emailFavorites =
-      (user.notificationPreferences?.emailFavorites ?? true) as boolean;
-
     return res.json({
       success: true,
       data: {
@@ -347,7 +346,6 @@ export const getProfessionalFavoriteStats = async (req: Request, res: Response) 
         profileCount,
         perProject,
         newSinceLastSeen,
-        emailFavorites,
       },
     });
   } catch (error) {
@@ -372,25 +370,3 @@ export const dismissFavoriteNotifications = async (req: Request, res: Response) 
   }
 };
 
-export const setFavoriteEmailPreference = async (req: Request, res: Response) => {
-  try {
-    await connectToDatabase();
-    const user = req.user as any;
-    if (!user || user.role !== "professional") {
-      return res.status(403).json({ success: false, msg: "Professional role required" });
-    }
-    const { emailFavorites } = req.body || {};
-    if (typeof emailFavorites !== "boolean") {
-      return res.status(400).json({ success: false, msg: "emailFavorites must be boolean" });
-    }
-    const userId = user._id || user.id;
-    await User.updateOne(
-      { _id: userId },
-      { $set: { "notificationPreferences.emailFavorites": emailFavorites } }
-    );
-    return res.json({ success: true, data: { emailFavorites } });
-  } catch (error) {
-    console.error("setFavoriteEmailPreference error:", error);
-    return res.status(500).json({ success: false, msg: "Failed to update preference" });
-  }
-};

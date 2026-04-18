@@ -57,12 +57,25 @@ type ProfessionalStats = {
 };
 
 const PROFESSIONAL_STATS_TTL_MS = 5 * 60 * 1000;
+const PROFESSIONAL_STATS_CACHE_MAX_SIZE = 1000;
 const professionalStatsCache = new Map<string, { stats: ProfessionalStats; expiresAt: number }>();
+
+const evictExpiredProfessionalStats = () => {
+  const now = Date.now();
+  for (const [key, value] of professionalStatsCache) {
+    if (value.expiresAt <= now) {
+      professionalStatsCache.delete(key);
+    }
+  }
+};
 
 const computeProfessionalStats = async (professionalId: string): Promise<ProfessionalStats> => {
   const cached = professionalStatsCache.get(professionalId);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.stats;
+  }
+  if (professionalStatsCache.size > PROFESSIONAL_STATS_CACHE_MAX_SIZE) {
+    evictExpiredProfessionalStats();
   }
 
   try {
@@ -99,37 +112,28 @@ const computeProfessionalStats = async (professionalId: string): Promise<Profess
     let avgResponseTimeMs = 0;
     try {
       const proConvoIds = await ChatMessage.distinct("conversationId", { senderId: profObjectId });
-      let totalResponseMs = 0;
-      let responseCount = 0;
-
-      for (const convoId of proConvoIds) {
-        const cursor = ChatMessage.find(
-          { conversationId: convoId },
-          { senderRole: 1, createdAt: 1 }
-        )
-          .sort({ _id: 1 })
-          .cursor();
-
-        let prevRole: string | null = null;
-        let prevTime = 0;
-
-        for await (const doc of cursor) {
-          const role = doc.senderRole;
-          const time = new Date(doc.createdAt).getTime();
-          if (role === "professional" && prevRole === "customer") {
-            const diff = time - prevTime;
-            if (diff > 0) {
-              totalResponseMs += diff;
-              responseCount++;
-            }
-          }
-          prevRole = role;
-          prevTime = time;
+      if (proConvoIds.length > 0) {
+        const [responseAgg] = await ChatMessage.aggregate([
+          { $match: { conversationId: { $in: proConvoIds } } },
+          { $sort: { conversationId: 1, _id: 1 } },
+          {
+            $setWindowFields: {
+              partitionBy: "$conversationId",
+              sortBy: { _id: 1 },
+              output: {
+                prevSenderRole: { $shift: { output: "$senderRole", by: -1 } },
+                prevCreatedAt: { $shift: { output: "$createdAt", by: -1 } },
+              },
+            },
+          },
+          { $match: { senderRole: "professional", prevSenderRole: "customer" } },
+          { $project: { diff: { $subtract: ["$createdAt", "$prevCreatedAt"] } } },
+          { $match: { diff: { $gt: 0 } } },
+          { $group: { _id: null, totalMs: { $sum: "$diff" }, count: { $sum: 1 } } },
+        ]);
+        if (responseAgg?.count > 0) {
+          avgResponseTimeMs = responseAgg.totalMs / responseAgg.count;
         }
-      }
-
-      if (responseCount > 0) {
-        avgResponseTimeMs = totalResponseMs / responseCount;
       }
     } catch (err) {
       console.warn("[Project] Failed computing avgResponseTime for professional", professionalId, err);

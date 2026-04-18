@@ -190,9 +190,42 @@ export const listAllFavorites = async (req: Request, res: Response) => {
       Favorite.countDocuments(filter),
     ]);
 
+    const profIdSet = new Map<string, mongoose.Types.ObjectId>();
+    const projIdSet = new Map<string, mongoose.Types.ObjectId>();
+    for (const r of rows) {
+      const row = r as any;
+      const key = row.targetId.toString();
+      if (row.targetType === "professional") profIdSet.set(key, row.targetId);
+      else if (row.targetType === "project") projIdSet.set(key, row.targetId);
+    }
+
+    const [profs, projects] = await Promise.all([
+      profIdSet.size
+        ? User.find({ _id: { $in: Array.from(profIdSet.values()) } }).select("name username").lean()
+        : [],
+      projIdSet.size
+        ? Project.find({ _id: { $in: Array.from(projIdSet.values()) } }).select("title").lean()
+        : [],
+    ]);
+    const profMap = new Map(profs.map((p: any) => [p._id.toString(), p]));
+    const projMap = new Map(projects.map((p: any) => [p._id.toString(), p]));
+
+    const items = rows.map((r: any) => {
+      const idStr = r.targetId.toString();
+      let targetLabel = "(deleted)";
+      if (r.targetType === "professional") {
+        const p = profMap.get(idStr);
+        targetLabel = p?.username || p?.name || "(deleted)";
+      } else if (r.targetType === "project") {
+        const p = projMap.get(idStr);
+        targetLabel = p?.title || "(deleted)";
+      }
+      return { ...r, targetLabel };
+    });
+
     return res.json({
       success: true,
-      data: { items: rows, page, limit, total },
+      data: { items, page, limit, total },
     });
   } catch (error) {
     console.error("listAllFavorites error:", error);

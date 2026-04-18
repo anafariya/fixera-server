@@ -144,11 +144,7 @@ export interface IUser extends Document {
     totalReferrals?: number;
     completedReferrals?: number;
     // Favorite notification tracking (professional only)
-    lastFavoritesNotifiedAt?: Date;
     lastFavoritesViewedAt?: Date;
-    notificationPreferences?: {
-        emailFavorites?: boolean;
-    };
     employee?: {
         companyId?: string;
         invitedBy?: string;
@@ -559,16 +555,9 @@ const UserSchema = new Schema({
         default: 0,
         min: 0
     },
-    lastFavoritesNotifiedAt: {
-        type: Date,
-        required: false
-    },
     lastFavoritesViewedAt: {
         type: Date,
         required: false
-    },
-    notificationPreferences: {
-        emailFavorites: { type: Boolean, default: true }
     },
     employee: {
         companyId: { type: String, required: false },
