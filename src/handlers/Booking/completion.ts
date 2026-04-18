@@ -16,6 +16,7 @@ import { updateProfessionalLevel } from '../../utils/professionalLevelSystem';
 import Payment from '../../models/payment';
 import {
   awardBookingCompletionPoints,
+  countUnpaidMilestones,
   ensureWarrantyCoverageSnapshot,
   getProfessionalId,
   markMilestonesCompleted,
@@ -68,17 +69,15 @@ export const professionalCompleteBooking = async (req: Request, res: Response) =
       });
     }
 
-    if (Array.isArray(booking.milestonePayments) && booking.milestonePayments.length > 0) {
-      const unpaid = booking.milestonePayments.filter((m: any) => m.status !== 'paid');
-      if (unpaid.length > 0) {
-        return res.status(400).json({
-          success: false,
-          error: {
-            code: 'MILESTONES_UNPAID',
-            message: `Cannot confirm completion: ${unpaid.length} milestone payment(s) are still unpaid.`
-          }
-        });
-      }
+    const unpaidMilestoneCount = countUnpaidMilestones(booking);
+    if (unpaidMilestoneCount > 0) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'MILESTONES_UNPAID',
+          message: `Cannot confirm completion: ${unpaidMilestoneCount} milestone payment(s) are still unpaid.`
+        }
+      });
     }
 
     const { notes, extraCosts: extraCostsRaw } = req.body;
@@ -465,17 +464,15 @@ export const customerConfirmCompletion = async (req: Request, res: Response) => 
       });
     }
 
-    if (Array.isArray(booking.milestonePayments) && booking.milestonePayments.length > 0) {
-      const unpaid = booking.milestonePayments.filter((m: any) => m.status !== 'paid');
-      if (unpaid.length > 0) {
-        return res.status(400).json({
-          success: false,
-          error: {
-            code: 'MILESTONES_UNPAID',
-            message: `Cannot confirm completion: ${unpaid.length} milestone payment(s) are still unpaid.`
-          }
-        });
-      }
+    const unpaidMilestoneCount = countUnpaidMilestones(booking);
+    if (unpaidMilestoneCount > 0) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'MILESTONES_UNPAID',
+          message: `Cannot confirm completion: ${unpaidMilestoneCount} milestone payment(s) are still unpaid.`
+        }
+      });
     }
 
     const extraCostTotal = booking.extraCostTotal || 0;
