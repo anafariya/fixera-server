@@ -47,13 +47,7 @@ const DEFAULTS: DefaultPolicy[] = [
     title: "Privacy Policy",
     excerpt:
       "How Fixera collects, uses, and protects your personal information.",
-    body: `<p><em>Last updated: ${new Date().toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    })}</em></p>
-
-<h2>1. Information we collect</h2>
+    body: `<h2>1. Information we collect</h2>
 <p>We collect information you provide directly (name, email, phone, address, payment details) and information generated through your use of Fixera (bookings, messages, reviews, device and usage data).</p>
 
 <h2>2. How we use your information</h2>

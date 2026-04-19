@@ -87,8 +87,12 @@ export const listCmsContent = async (req: Request, res: Response) => {
     if (tag) filter.tags = tag.toLowerCase();
     if (locale) filter.locale = locale.toLowerCase();
     if (search && search.trim()) {
-      const regex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-      filter.$or = [{ title: regex }, { slug: regex }, { excerpt: regex }];
+      const term = search.trim();
+      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      filter.$or = [
+        { $text: { $search: term } },
+        { slug: new RegExp("^" + escaped, "i") },
+      ];
     }
 
     const [items, total] = await Promise.all([
@@ -229,27 +233,51 @@ export const updateCmsContent = async (req: Request, res: Response) => {
 
     if (typeof body.title === "string" && body.title.trim()) doc.title = body.title.trim();
 
-    if (typeof body.slug === "string" && body.slug.trim()) {
-      const newSlug = toSlug(body.slug);
-      if (newSlug !== doc.slug) {
-        const clash = await CmsContent.findOne({ type: doc.type, slug: newSlug, locale: doc.locale, _id: { $ne: doc._id } });
-        if (clash) {
-          return res.status(409).json({ success: false, msg: "Slug already exists for this type and locale" });
-        }
-        doc.slug = newSlug;
-      }
+    const finalSlug =
+      typeof body.slug === "string" && body.slug.trim() ? toSlug(body.slug) : doc.slug;
+    const finalLocale =
+      typeof body.locale === "string" && body.locale.trim()
+        ? body.locale.trim().toLowerCase()
+        : doc.locale;
+
+    if (!finalSlug) {
+      return res.status(400).json({ success: false, msg: "Slug is required" });
     }
 
-    if (typeof body.locale === "string" && body.locale.trim()) doc.locale = body.locale.trim().toLowerCase();
+    if (finalSlug !== doc.slug || finalLocale !== doc.locale) {
+      const clash = await CmsContent.findOne({
+        type: doc.type,
+        slug: finalSlug,
+        locale: finalLocale,
+        _id: { $ne: doc._id },
+      });
+      if (clash) {
+        const slugChanged = finalSlug !== doc.slug;
+        const localeChanged = finalLocale !== doc.locale;
+        const detail = slugChanged && localeChanged ? "slug and locale" : slugChanged ? "slug" : "locale";
+        return res.status(409).json({
+          success: false,
+          msg: `Another ${doc.type} already uses this ${detail} (${finalSlug} / ${finalLocale})`,
+        });
+      }
+      doc.slug = finalSlug;
+      doc.locale = finalLocale;
+    }
+
     if (typeof body.body === "string") doc.body = body.body;
     if (typeof body.excerpt === "string") doc.excerpt = body.excerpt.trim().slice(0, 500);
 
+    let previousCoverToCleanup: string | undefined;
     if (typeof body.coverImage === "string") {
       const cover = body.coverImage.trim();
       if ((doc.type === "blog" || doc.type === "news") && !cover) {
         return res.status(400).json({ success: false, msg: "Cover image is required for blog and news" });
       }
-      doc.coverImage = cover || undefined;
+      const nextCover = cover || undefined;
+      if (doc.coverImage && doc.coverImage !== nextCover) {
+        previousCoverToCleanup = doc.coverImage;
+      }
+      doc.coverImage = nextCover;
     }
 
     if (doc.type === "faq" && typeof body.category === "string") {
@@ -276,6 +304,15 @@ export const updateCmsContent = async (req: Request, res: Response) => {
     if (Array.isArray(body.relatedServices)) doc.relatedServices = sanitizeObjectIdArray(body.relatedServices);
 
     await doc.save();
+
+    if (previousCoverToCleanup) {
+      const key = parseS3KeyFromUrl(previousCoverToCleanup);
+      if (key && key.startsWith("cms/")) {
+        deleteFromS3(key).catch((err) =>
+          console.error("Failed to delete replaced CMS cover image:", err)
+        );
+      }
+    }
 
     return res.status(200).json({ success: true, data: doc });
   } catch (error: any) {

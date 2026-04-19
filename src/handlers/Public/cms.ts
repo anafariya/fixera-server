@@ -10,6 +10,9 @@ import connecToDatabase from "../../config/db";
 const LISTING_FIELDS =
   "type title slug locale excerpt coverImage tags publishedAt seo category author updatedAt";
 
+const BOT_UA_RE =
+  /bot|crawl|spider|slurp|bingpreview|facebookexternalhit|linkedinbot|twitterbot|whatsapp|telegram|prerender|headlesschrome|lighthouse/i;
+
 export const listPublicCmsContent = async (req: Request, res: Response) => {
   try {
     const type = req.params.type as CmsContentType;
@@ -67,17 +70,20 @@ export const getPublicCmsContentBySlug = async (req: Request, res: Response) => 
 
     await connecToDatabase();
 
-    const doc = await CmsContent.findOneAndUpdate(
-      { type, slug, locale, status: "published" },
-      { $inc: { viewCount: 1 } },
-      { new: true }
-    )
+    const doc = await CmsContent.findOne({ type, slug, locale, status: "published" })
       .populate("author", "name")
       .populate("relatedContent", "title slug type excerpt coverImage publishedAt")
       .populate("relatedServices", "name slug")
       .lean();
 
     if (!doc) return res.status(404).json({ success: false, msg: "Not found" });
+
+    const ua = req.get("user-agent") || "";
+    if (!BOT_UA_RE.test(ua)) {
+      CmsContent.updateOne({ _id: doc._id }, { $inc: { viewCount: 1 } }).catch((err) =>
+        console.error("CMS viewCount increment failed:", err)
+      );
+    }
 
     return res.status(200).json({ success: true, data: doc });
   } catch (error) {
@@ -118,12 +124,33 @@ export const listPublicFaq = async (req: Request, res: Response) => {
   }
 };
 
-export const listCmsSitemapEntries = async (_req: Request, res: Response) => {
+const SITEMAP_MAX_LIMIT = 50000;
+const SITEMAP_DEFAULT_LIMIT = 50000;
+
+export const listCmsSitemapEntries = async (req: Request, res: Response) => {
   try {
     await connecToDatabase();
+
+    const rawLimit = parseInt((req.query.limit as string) || String(SITEMAP_DEFAULT_LIMIT), 10);
+    const limit = Math.min(
+      SITEMAP_MAX_LIMIT,
+      Math.max(1, Number.isFinite(rawLimit) ? rawLimit : SITEMAP_DEFAULT_LIMIT)
+    );
+    const page = Math.max(1, parseInt((req.query.page as string) || "1", 10));
+    const skip = (page - 1) * limit;
+
     const items = await CmsContent.find({ status: "published" })
       .select("type slug locale updatedAt publishedAt")
+      .sort({ updatedAt: -1 })
+      .skip(skip)
+      .limit(limit)
       .lean();
+
+    if (items.length >= SITEMAP_MAX_LIMIT) {
+      console.warn(
+        `CMS sitemap response truncated at SITEMAP_MAX_LIMIT=${SITEMAP_MAX_LIMIT}; clients must paginate`
+      );
+    }
 
     return res.status(200).json({ success: true, data: items });
   } catch (error) {

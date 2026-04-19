@@ -102,6 +102,9 @@ CmsContentSchema.pre("save", function (next) {
   if (this.status === "published" && !this.publishedAt) {
     this.publishedAt = new Date();
   }
+  if (this.isModified("status") && this.status !== "published") {
+    this.publishedAt = undefined;
+  }
   if (this.isModified("tags") && Array.isArray(this.tags)) {
     this.tags = Array.from(
       new Set(
