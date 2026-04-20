@@ -5,7 +5,7 @@ import CmsContent, {
   FAQ_CATEGORIES,
   FAQ_CATEGORY_SLUGS,
 } from "../../models/cmsContent";
-import connecToDatabase from "../../config/db";
+import connectDB from "../../config/db";
 
 const LISTING_FIELDS =
   "type title slug locale excerpt coverImage tags publishedAt seo category author updatedAt";
@@ -20,8 +20,13 @@ export const listPublicCmsContent = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, msg: "Unknown content type" });
     }
 
-    const page = Math.max(1, parseInt((req.query.page as string) || "1", 10));
-    const limit = Math.min(50, Math.max(1, parseInt((req.query.limit as string) || "12", 10)));
+    const rawPage = Number((req.query.page as string) ?? "1");
+    const page = Math.max(1, Number.isFinite(rawPage) ? Math.trunc(rawPage) : 1);
+    const rawLimit = Number((req.query.limit as string) ?? "12");
+    const limit = Math.min(
+      50,
+      Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 12)
+    );
     const skip = (page - 1) * limit;
 
     const locale = typeof req.query.locale === "string" ? req.query.locale.toLowerCase() : "en";
@@ -30,7 +35,7 @@ export const listPublicCmsContent = async (req: Request, res: Response) => {
     const tag = typeof req.query.tag === "string" ? req.query.tag.toLowerCase() : "";
     if (tag) filter.tags = tag;
 
-    await connecToDatabase();
+    await connectDB();
 
     const [items, total] = await Promise.all([
       CmsContent.find(filter)
@@ -68,11 +73,15 @@ export const getPublicCmsContentBySlug = async (req: Request, res: Response) => 
 
     const locale = typeof req.query.locale === "string" ? req.query.locale.toLowerCase() : "en";
 
-    await connecToDatabase();
+    await connectDB();
 
     const doc = await CmsContent.findOne({ type, slug, locale, status: "published" })
       .populate("author", "name")
-      .populate("relatedContent", "title slug type excerpt coverImage publishedAt")
+      .populate({
+        path: "relatedContent",
+        match: { status: "published" },
+        select: "title slug type excerpt coverImage publishedAt",
+      })
       .populate("relatedServices", "name slug")
       .lean();
 
@@ -96,7 +105,7 @@ export const listPublicFaq = async (req: Request, res: Response) => {
   try {
     const locale = typeof req.query.locale === "string" ? req.query.locale.toLowerCase() : "en";
 
-    await connecToDatabase();
+    await connectDB();
 
     const items = await CmsContent.find({ type: "faq", status: "published", locale })
       .select("title slug body category publishedAt updatedAt")
@@ -125,26 +134,32 @@ export const listPublicFaq = async (req: Request, res: Response) => {
 };
 
 const SITEMAP_MAX_LIMIT = 50000;
-const SITEMAP_DEFAULT_LIMIT = 50000;
+const SITEMAP_DEFAULT_LIMIT = 1000;
 
 export const listCmsSitemapEntries = async (req: Request, res: Response) => {
   try {
-    await connecToDatabase();
+    await connectDB();
 
-    const rawLimit = parseInt((req.query.limit as string) || String(SITEMAP_DEFAULT_LIMIT), 10);
+    const rawLimit = Number((req.query.limit as string) ?? String(SITEMAP_DEFAULT_LIMIT));
     const limit = Math.min(
       SITEMAP_MAX_LIMIT,
-      Math.max(1, Number.isFinite(rawLimit) ? rawLimit : SITEMAP_DEFAULT_LIMIT)
+      Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : SITEMAP_DEFAULT_LIMIT)
     );
-    const page = Math.max(1, parseInt((req.query.page as string) || "1", 10));
+    const rawPage = Number((req.query.page as string) ?? "1");
+    const page = Math.max(1, Number.isFinite(rawPage) ? Math.trunc(rawPage) : 1);
     const skip = (page - 1) * limit;
 
-    const items = await CmsContent.find({ status: "published" })
-      .select("type slug locale updatedAt publishedAt")
-      .sort({ updatedAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
+    const filter = { status: "published" };
+
+    const [items, total] = await Promise.all([
+      CmsContent.find(filter)
+        .select("type slug locale updatedAt publishedAt")
+        .sort({ updatedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      CmsContent.countDocuments(filter),
+    ]);
 
     if (items.length >= SITEMAP_MAX_LIMIT) {
       console.warn(
@@ -152,7 +167,16 @@ export const listCmsSitemapEntries = async (req: Request, res: Response) => {
       );
     }
 
-    return res.status(200).json({ success: true, data: items });
+    const hasMore = skip + items.length < total;
+    const totalPages = Math.ceil(total / limit);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        items,
+        pagination: { page, limit, total, totalPages, hasMore },
+      },
+    });
   } catch (error) {
     console.error("CMS sitemap entries error:", error);
     return res.status(500).json({ success: false, msg: "Failed to load sitemap entries" });
