@@ -4,6 +4,7 @@
  */
 
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import Stripe from 'stripe';
 import { stripe, STRIPE_CONFIG } from '../../services/stripe';
 import Booking from '../../models/booking';
@@ -274,36 +275,47 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
     const codeAmount = (booking.payment as any)?.discount?.codeDiscountAmount;
     const codeLabel = (booking.payment as any)?.discount?.codeLabel;
     if (codeId && codeAmount > 0 && booking.customer) {
+      const session = await mongoose.startSession();
       try {
-        await DiscountCodeUsage.create({
-          code: codeId,
-          codeString: codeLabel || '',
-          user: booking.customer,
-          booking: booking._id,
-          amountDiscounted: codeAmount,
-          redeemedAt: now
+        let limitReached = false;
+        await session.withTransaction(async () => {
+          limitReached = false;
+          const incremented = await DiscountCode.findOneAndUpdate(
+            {
+              _id: codeId,
+              $or: [
+                { usageLimit: { $exists: false } },
+                { usageLimit: null },
+                { $expr: { $lt: ['$usageCount', '$usageLimit'] } },
+              ],
+            },
+            { $inc: { usageCount: 1 } },
+            { new: true, session }
+          );
+          if (!incremented) {
+            limitReached = true;
+            return;
+          }
+          await DiscountCodeUsage.create([{
+            code: codeId,
+            codeString: codeLabel || '',
+            user: booking.customer,
+            booking: booking._id,
+            amountDiscounted: codeAmount,
+            redeemedAt: now,
+          }], { session });
         });
-        const incremented = await DiscountCode.findOneAndUpdate(
-          {
-            _id: codeId,
-            $or: [
-              { usageLimit: { $exists: false } },
-              { usageLimit: null },
-              { $expr: { $lt: ['$usageCount', '$usageLimit'] } },
-            ],
-          },
-          { $inc: { usageCount: 1 } },
-          { new: true }
-        );
-        if (!incremented) {
-          console.warn(`Discount code ${codeLabel || codeId} usageLimit already reached; usage recorded but counter not incremented for booking ${bookingId}`);
+        if (limitReached) {
+          console.warn(`Discount code ${codeLabel || codeId} usageLimit already reached; skipping usage record for booking ${bookingId}`);
         }
       } catch (codeError: any) {
         if (codeError?.code === 11000) {
-          // Duplicate usage for this booking — already recorded by a prior webhook delivery; no-op
+          // Duplicate usage for this booking — already recorded by a prior webhook delivery; transaction rolled back, no-op
         } else {
           console.error(`Failed to record discount code usage for booking ${bookingId}:`, codeError);
         }
+      } finally {
+        await session.endSession();
       }
     }
 
