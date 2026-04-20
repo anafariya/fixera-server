@@ -149,12 +149,17 @@ export const listCmsSitemapEntries = async (req: Request, res: Response) => {
     const page = Math.max(1, Number.isFinite(rawPage) ? Math.trunc(rawPage) : 1);
     const skip = (page - 1) * limit;
 
-    const items = await CmsContent.find({ status: "published" })
-      .select("type slug locale updatedAt publishedAt")
-      .sort({ updatedAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
+    const filter = { status: "published" };
+
+    const [items, total] = await Promise.all([
+      CmsContent.find(filter)
+        .select("type slug locale updatedAt publishedAt")
+        .sort({ updatedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      CmsContent.countDocuments(filter),
+    ]);
 
     if (items.length >= SITEMAP_MAX_LIMIT) {
       console.warn(
@@ -162,7 +167,16 @@ export const listCmsSitemapEntries = async (req: Request, res: Response) => {
       );
     }
 
-    return res.status(200).json({ success: true, data: items });
+    const hasMore = skip + items.length < total;
+    const totalPages = Math.ceil(total / limit);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        items,
+        pagination: { page, limit, total, totalPages, hasMore },
+      },
+    });
   } catch (error) {
     console.error("CMS sitemap entries error:", error);
     return res.status(500).json({ success: false, msg: "Failed to load sitemap entries" });
