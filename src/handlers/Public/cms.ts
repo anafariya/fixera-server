@@ -20,8 +20,13 @@ export const listPublicCmsContent = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, msg: "Unknown content type" });
     }
 
-    const page = Math.max(1, parseInt((req.query.page as string) || "1", 10));
-    const limit = Math.min(50, Math.max(1, parseInt((req.query.limit as string) || "12", 10)));
+    const rawPage = Number((req.query.page as string) ?? "1");
+    const page = Math.max(1, Number.isFinite(rawPage) ? Math.trunc(rawPage) : 1);
+    const rawLimit = Number((req.query.limit as string) ?? "12");
+    const limit = Math.min(
+      50,
+      Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 12)
+    );
     const skip = (page - 1) * limit;
 
     const locale = typeof req.query.locale === "string" ? req.query.locale.toLowerCase() : "en";
@@ -129,18 +134,19 @@ export const listPublicFaq = async (req: Request, res: Response) => {
 };
 
 const SITEMAP_MAX_LIMIT = 50000;
-const SITEMAP_DEFAULT_LIMIT = 50000;
+const SITEMAP_DEFAULT_LIMIT = 1000;
 
 export const listCmsSitemapEntries = async (req: Request, res: Response) => {
   try {
     await connectDB();
 
-    const rawLimit = parseInt((req.query.limit as string) || String(SITEMAP_DEFAULT_LIMIT), 10);
+    const rawLimit = Number((req.query.limit as string) ?? String(SITEMAP_DEFAULT_LIMIT));
     const limit = Math.min(
       SITEMAP_MAX_LIMIT,
-      Math.max(1, Number.isFinite(rawLimit) ? rawLimit : SITEMAP_DEFAULT_LIMIT)
+      Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : SITEMAP_DEFAULT_LIMIT)
     );
-    const page = Math.max(1, parseInt((req.query.page as string) || "1", 10));
+    const rawPage = Number((req.query.page as string) ?? "1");
+    const page = Math.max(1, Number.isFinite(rawPage) ? Math.trunc(rawPage) : 1);
     const skip = (page - 1) * limit;
 
     const items = await CmsContent.find({ status: "published" })
