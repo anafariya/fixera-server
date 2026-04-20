@@ -5,7 +5,7 @@ import CmsContent, {
   FAQ_CATEGORIES,
   FAQ_CATEGORY_SLUGS,
 } from "../../models/cmsContent";
-import connecToDatabase from "../../config/db";
+import connectDB from "../../config/db";
 
 const LISTING_FIELDS =
   "type title slug locale excerpt coverImage tags publishedAt seo category author updatedAt";
@@ -30,7 +30,7 @@ export const listPublicCmsContent = async (req: Request, res: Response) => {
     const tag = typeof req.query.tag === "string" ? req.query.tag.toLowerCase() : "";
     if (tag) filter.tags = tag;
 
-    await connecToDatabase();
+    await connectDB();
 
     const [items, total] = await Promise.all([
       CmsContent.find(filter)
@@ -68,7 +68,7 @@ export const getPublicCmsContentBySlug = async (req: Request, res: Response) => 
 
     const locale = typeof req.query.locale === "string" ? req.query.locale.toLowerCase() : "en";
 
-    await connecToDatabase();
+    await connectDB();
 
     const doc = await CmsContent.findOne({ type, slug, locale, status: "published" })
       .populate("author", "name")
@@ -96,7 +96,7 @@ export const listPublicFaq = async (req: Request, res: Response) => {
   try {
     const locale = typeof req.query.locale === "string" ? req.query.locale.toLowerCase() : "en";
 
-    await connecToDatabase();
+    await connectDB();
 
     const items = await CmsContent.find({ type: "faq", status: "published", locale })
       .select("title slug body category publishedAt updatedAt")
@@ -129,7 +129,7 @@ const SITEMAP_DEFAULT_LIMIT = 50000;
 
 export const listCmsSitemapEntries = async (req: Request, res: Response) => {
   try {
-    await connecToDatabase();
+    await connectDB();
 
     const rawLimit = parseInt((req.query.limit as string) || String(SITEMAP_DEFAULT_LIMIT), 10);
     const limit = Math.min(
