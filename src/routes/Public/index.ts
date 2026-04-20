@@ -15,6 +15,12 @@ import {
   getPublicProfessionalFavoriteCount,
   getPublicProjectFavoriteCount,
 } from "../../handlers/Favorites";
+import {
+  listPublicCmsContent,
+  getPublicCmsContentBySlug,
+  listPublicFaq,
+  listCmsSitemapEntries,
+} from "../../handlers/Public/cms";
 
 // Public routes - accessible without authentication
 const publicRouter = Router();
@@ -72,5 +78,11 @@ publicRouter
 publicRouter
   .route("/projects/:id/favorites-count")
   .get(schedulingRateLimiter, getPublicProjectFavoriteCount);
+
+// CMS public endpoints
+publicRouter.route("/cms/sitemap").get(listCmsSitemapEntries);
+publicRouter.route("/cms/faq").get(listPublicFaq);
+publicRouter.route("/cms/:type").get(listPublicCmsContent);
+publicRouter.route("/cms/:type/:slug").get(getPublicCmsContentBySlug);
 
 export default publicRouter;

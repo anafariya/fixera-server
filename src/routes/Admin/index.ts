@@ -70,6 +70,16 @@ import {
 } from "../../handlers/Admin/favoritesAdmin";
 import { runWarrantyClaimChecks } from "../../utils/warrantyClaimScheduler";
 import { runRfqDeadlineCheck } from "../../utils/rfqDeadlineScheduler";
+import {
+  listCmsContent,
+  getCmsContentById,
+  createCmsContent,
+  updateCmsContent,
+  deleteCmsContent,
+  uploadCmsImage,
+  listFaqCategories,
+} from "../../handlers/Admin/cmsManagement";
+import { uploadProfileImage as cmsImageMulter } from "../../utils/s3Upload";
 
 const adminRouter = Router();
 
@@ -148,6 +158,12 @@ adminRouter.route('/favorites/:id').delete(deleteFavorite);
 
 // Platform settings routes
 adminRouter.route('/platform-settings').get(getPlatformSettings).put(updatePlatformSettings);
+
+// CMS management routes
+adminRouter.route('/cms').get(listCmsContent).post(createCmsContent);
+adminRouter.route('/cms/faq-categories').get(listFaqCategories);
+adminRouter.route('/cms/upload-image').post(cmsImageMulter.single('image'), uploadCmsImage);
+adminRouter.route('/cms/:id').get(getCmsContentById).put(updateCmsContent).delete(deleteCmsContent);
 
 // Manual scheduler triggers
 adminRouter.route('/run-warranty-checks').post(async (_req, res) => {
