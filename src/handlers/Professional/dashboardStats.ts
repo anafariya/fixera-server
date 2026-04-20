@@ -66,8 +66,21 @@ export const getProfessionalDashboardStats = async (req: Request, res: Response)
       Booking.countDocuments({ ...baseMatch, status: { $in: activeStatuses } }),
       Booking.countDocuments({ ...baseMatch, status: 'completed' }),
       Booking.countDocuments({ ...baseMatch, status: 'cancelled' }),
-      Booking.countDocuments({ ...baseMatch, 'quoteVersions.0': { $exists: true } }),
-      Booking.countDocuments({ ...baseMatch, status: { $in: ['quote_accepted', 'payment_pending', 'booked', 'in_progress', 'professional_completed', 'completed'] }, 'quoteVersions.0': { $exists: true } }),
+      Booking.countDocuments({
+        ...baseMatch,
+        $or: [
+          { 'quoteVersions.0': { $exists: true } },
+          { 'quote.amount': { $gt: 0 } },
+        ],
+      }),
+      Booking.countDocuments({
+        ...baseMatch,
+        status: { $in: ['quote_accepted', 'payment_pending', 'booked', 'in_progress', 'professional_completed', 'completed'] },
+        $or: [
+          { 'quoteVersions.0': { $exists: true } },
+          { 'quote.amount': { $gt: 0 } },
+        ],
+      }),
       Booking.aggregate([
         { $match: { ...baseMatch, 'payment.status': { $in: ['authorized', 'completed'] } } },
         {
@@ -84,21 +97,35 @@ export const getProfessionalDashboardStats = async (req: Request, res: Response)
         { $group: { _id: null, total: { $sum: '$cancellation.refundAmount' } } },
       ]),
       WarrantyClaim.countDocuments({ professional: professionalId, ...(startDate ? { createdAt: { $gte: startDate } } : {}) }),
-      Favorite.countDocuments({ targetType: 'professional', targetId: professionalId }),
+      Favorite.countDocuments({
+        targetType: 'professional',
+        targetId: professionalId,
+        ...(startDate ? { createdAt: { $gte: startDate } } : {}),
+      }),
       Booking.aggregate([
         {
           $match: {
             professional: professionalId,
             'payment.status': { $in: ['authorized', 'completed'] },
-            ...(startDate ? { 'payment.paidAt': { $gte: startDate } } : {}),
           },
         },
+        {
+          $addFields: {
+            _paymentAt: {
+              $ifNull: [
+                '$payment.paidAt',
+                { $ifNull: ['$payment.capturedAt', { $ifNull: ['$payment.authorizedAt', '$createdAt'] }] },
+              ],
+            },
+          },
+        },
+        ...(startDate ? [{ $match: { _paymentAt: { $gte: startDate } } }] : []),
         {
           $group: {
             _id: {
               $dateToString: {
                 format: '%Y-%m',
-                date: { $ifNull: ['$payment.paidAt', '$createdAt'] },
+                date: '$_paymentAt',
               },
             },
             revenue: { $sum: { $ifNull: ['$payment.professionalPayout', 0] } },
@@ -295,7 +322,10 @@ export const getProfessionalDashboardStats = async (req: Request, res: Response)
 
 const escapeCsv = (value: unknown): string => {
   if (value === null || value === undefined) return '';
-  const str = String(value);
+  let str = String(value);
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
   if (/[",\n\r]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
   }

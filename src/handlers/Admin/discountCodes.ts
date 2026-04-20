@@ -37,6 +37,20 @@ const validatePayload = (body: any): { ok: true; data: any } | { ok: false; erro
   if (!from || !until) return { ok: false, error: 'validFrom and validUntil are required dates' };
   if (until <= from) return { ok: false, error: 'validUntil must be after validFrom' };
 
+  if (activeCountries !== undefined && !Array.isArray(activeCountries)) {
+    return { ok: false, error: 'activeCountries must be an array of strings' };
+  }
+  if (Array.isArray(activeCountries) && !activeCountries.every((c: any) => typeof c === 'string' && c.trim().length > 0)) {
+    return { ok: false, error: 'activeCountries must contain only non-empty strings' };
+  }
+
+  if (applicableServices !== undefined && !Array.isArray(applicableServices)) {
+    return { ok: false, error: 'applicableServices must be an array of strings' };
+  }
+  if (Array.isArray(applicableServices) && !applicableServices.every((s: any) => typeof s === 'string' && s.trim().length > 0)) {
+    return { ok: false, error: 'applicableServices must contain only non-empty strings' };
+  }
+
   return {
     ok: true,
     data: {
@@ -45,8 +59,8 @@ const validatePayload = (body: any): { ok: true; data: any } | { ok: false; erro
       value,
       maxDiscountAmount: typeof maxDiscountAmount === 'number' && maxDiscountAmount > 0 ? maxDiscountAmount : undefined,
       minBookingAmount: typeof minBookingAmount === 'number' && minBookingAmount > 0 ? minBookingAmount : undefined,
-      activeCountries: Array.isArray(activeCountries) ? activeCountries.map((c: string) => c.toUpperCase()) : [],
-      applicableServices: Array.isArray(applicableServices) ? applicableServices : [],
+      activeCountries: Array.isArray(activeCountries) ? activeCountries.map((c: string) => c.trim().toUpperCase()) : [],
+      applicableServices: Array.isArray(applicableServices) ? applicableServices.map((s: string) => s.trim()) : [],
       validFrom: from,
       validUntil: until,
       usageLimit: typeof usageLimit === 'number' && usageLimit > 0 ? usageLimit : undefined,
@@ -56,6 +70,8 @@ const validatePayload = (body: any): { ok: true; data: any } | { ok: false; erro
     }
   };
 };
+
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export const listDiscountCodes = async (req: Request, res: Response, _next: NextFunction) => {
   try {
@@ -79,7 +95,8 @@ export const listDiscountCodes = async (req: Request, res: Response, _next: Next
     }
 
     if (search && search.trim()) {
-      query.code = { $regex: search.trim().toUpperCase(), $options: 'i' };
+      const safeSearch = escapeRegExp(search.trim().slice(0, 64).toUpperCase());
+      query.code = { $regex: safeSearch, $options: 'i' };
     }
 
     const total = await DiscountCode.countDocuments(query);

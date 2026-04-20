@@ -899,10 +899,15 @@ export const ensurePaymentIntent = async (req: Request, res: Response) => {
     const storedCodeLabel = (booking.payment as any)?.discount?.codeLabel || undefined;
     const codeMatchesStored = storedCodeLabel === requestedCodeLabel;
 
+    const requestedPoints = parseInt(pts) || 0;
+    const storedPoints = Number((booking.payment as any)?.pointsToRedeem) || 0;
+    const pointsMatchStored = storedPoints === requestedPoints;
+
     if (
       booking.payment?.stripeClientSecret &&
       booking.payment.status === 'pending' &&
       codeMatchesStored &&
+      pointsMatchStored &&
       discountCode === undefined
     ) {
       return res.json({
@@ -916,7 +921,7 @@ export const ensurePaymentIntent = async (req: Request, res: Response) => {
     const paymentResult = await createPaymentIntent(
       booking._id.toString(),
       userId,
-      parseInt(pts) || 0,
+      requestedPoints,
       undefined,
       requestedCodeLabel
     );

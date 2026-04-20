@@ -208,6 +208,16 @@ export const createPaymentIntent = async (
           milestoneIndex: typeof booking.payment.milestoneIndex === 'number' ? booking.payment.milestoneIndex : null,
         };
       }
+      if (booking.payment.status === 'pending') {
+        try {
+          await stripe.paymentIntents.cancel(booking.payment.stripePaymentIntentId);
+          console.log(`🗑️  Cancelled superseded PaymentIntent ${booking.payment.stripePaymentIntentId} for booking ${booking._id}`);
+        } catch (cancelErr: any) {
+          if (cancelErr?.code !== 'payment_intent_unexpected_state' && cancelErr?.code !== 'resource_missing') {
+            console.warn(`Failed to cancel superseded PaymentIntent: ${cancelErr?.message || cancelErr}`);
+          }
+        }
+      }
     }
 
     const allowedStatuses = hasUnpaidMilestones

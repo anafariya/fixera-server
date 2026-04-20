@@ -26,7 +26,7 @@ export const getDiscountPreview = async (req: Request, res: Response) => {
     }
 
     const booking = await Booking.findById(bookingId)
-      .populate('customer', 'totalSpent points pointsExpiry')
+      .populate('customer', 'totalSpent points pointsExpiry location')
       .populate('project', 'repeatBuyerDiscount professionalId');
 
     if (!booking) {
@@ -75,7 +75,7 @@ export const getDiscountPreview = async (req: Request, res: Response) => {
     let codeInfo = null as any;
     let codeError: string | undefined;
     if (discountCodeInput) {
-      const customerCountry = booking.location?.country;
+      const customerCountry = (booking.customer as any)?.location?.country || booking.location?.country;
       const serviceType = (booking as any).serviceType;
       const validation = await validateDiscountCode(
         discountCodeInput,

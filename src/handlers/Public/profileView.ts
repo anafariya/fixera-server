@@ -26,7 +26,7 @@ export const recordProfessionalView = async (req: Request, res: Response) => {
       return res.json({ success: true, data: { recorded: false, reason: 'self_view' } });
     }
 
-    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || 'unknown';
+    const ip = req.ip || 'unknown';
     const ua = (req.headers['user-agent'] as string) || 'unknown';
     const visitorKey = viewerId ? `u:${viewerId.toString()}` : `ip:${hashVisitor(ip, ua)}`;
     const dayKey = new Date().toISOString().slice(0, 10);

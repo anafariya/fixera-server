@@ -275,20 +275,35 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
     const codeLabel = (booking.payment as any)?.discount?.codeLabel;
     if (codeId && codeAmount > 0 && booking.customer) {
       try {
-        const existingUsage = await DiscountCodeUsage.findOne({ booking: booking._id });
-        if (!existingUsage) {
-          await DiscountCodeUsage.create({
-            code: codeId,
-            codeString: codeLabel || '',
-            user: booking.customer,
-            booking: booking._id,
-            amountDiscounted: codeAmount,
-            redeemedAt: now
-          });
-          await DiscountCode.findByIdAndUpdate(codeId, { $inc: { usageCount: 1 } });
+        await DiscountCodeUsage.create({
+          code: codeId,
+          codeString: codeLabel || '',
+          user: booking.customer,
+          booking: booking._id,
+          amountDiscounted: codeAmount,
+          redeemedAt: now
+        });
+        const incremented = await DiscountCode.findOneAndUpdate(
+          {
+            _id: codeId,
+            $or: [
+              { usageLimit: { $exists: false } },
+              { usageLimit: null },
+              { $expr: { $lt: ['$usageCount', '$usageLimit'] } },
+            ],
+          },
+          { $inc: { usageCount: 1 } },
+          { new: true }
+        );
+        if (!incremented) {
+          console.warn(`Discount code ${codeLabel || codeId} usageLimit already reached; usage recorded but counter not incremented for booking ${bookingId}`);
         }
       } catch (codeError: any) {
-        console.error(`Failed to record discount code usage for booking ${bookingId}:`, codeError);
+        if (codeError?.code === 11000) {
+          // Duplicate usage for this booking — already recorded by a prior webhook delivery; no-op
+        } else {
+          console.error(`Failed to record discount code usage for booking ${bookingId}:`, codeError);
+        }
       }
     }
 
