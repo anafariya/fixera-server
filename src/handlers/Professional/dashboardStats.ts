@@ -82,7 +82,23 @@ export const getProfessionalDashboardStats = async (req: Request, res: Response)
         ],
       }),
       Booking.aggregate([
-        { $match: { ...baseMatch, 'payment.status': { $in: ['authorized', 'completed'] } } },
+        {
+          $match: {
+            professional: professionalId,
+            'payment.status': { $in: ['authorized', 'completed'] },
+          },
+        },
+        {
+          $addFields: {
+            _paymentAt: {
+              $ifNull: [
+                '$payment.paidAt',
+                { $ifNull: ['$payment.capturedAt', { $ifNull: ['$payment.authorizedAt', '$createdAt'] }] },
+              ],
+            },
+          },
+        },
+        ...(startDate ? [{ $match: { _paymentAt: { $gte: startDate } } }] : []),
         {
           $group: {
             _id: null,
@@ -166,13 +182,13 @@ export const getProfessionalDashboardStats = async (req: Request, res: Response)
         {
           $match: {
             professional: professionalId,
-            serviceType: { $exists: true, $ne: null },
+            'rfqData.serviceType': { $exists: true, $ne: null },
             ...(startDate ? { createdAt: { $gte: startDate } } : {}),
           },
         },
         {
           $group: {
-            _id: '$serviceType',
+            _id: '$rfqData.serviceType',
             bookings: { $sum: 1 },
             revenue: {
               $sum: {
@@ -356,14 +372,14 @@ export const getProfessionalDashboardBookings = async (req: Request, res: Respon
       .limit(limit)
       .populate('project', 'title')
       .populate('customer', 'name email')
-      .select('bookingNumber status createdAt scheduledStartDate scheduledExecutionEndDate completedAt payment serviceType project customer')
+      .select('bookingNumber status createdAt scheduledStartDate scheduledExecutionEndDate completedAt payment rfqData project customer')
       .lean();
 
     const rows = bookings.map((b: any) => ({
       bookingNumber: b.bookingNumber || b._id?.toString(),
       createdAt: b.createdAt,
       status: b.status,
-      service: b.serviceType || '',
+      service: b.rfqData?.serviceType || '',
       project: b.project?.title || '',
       customer: b.customer?.name || '',
       scheduledStart: b.scheduledStartDate || null,

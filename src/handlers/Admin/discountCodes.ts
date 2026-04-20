@@ -63,8 +63,8 @@ const validatePayload = (body: any): { ok: true; data: any } | { ok: false; erro
       applicableServices: Array.isArray(applicableServices) ? applicableServices.map((s: string) => s.trim()) : [],
       validFrom: from,
       validUntil: until,
-      usageLimit: typeof usageLimit === 'number' && usageLimit > 0 ? usageLimit : undefined,
-      perUserLimit: typeof perUserLimit === 'number' && perUserLimit > 0 ? perUserLimit : 1,
+      usageLimit: Number.isInteger(usageLimit) && usageLimit > 0 ? usageLimit : undefined,
+      perUserLimit: Number.isInteger(perUserLimit) && perUserLimit > 0 ? perUserLimit : 1,
       isActive: typeof isActive === 'boolean' ? isActive : true,
       description: typeof description === 'string' ? description.trim() : undefined
     }

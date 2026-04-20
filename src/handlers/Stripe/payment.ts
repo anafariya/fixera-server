@@ -199,7 +199,9 @@ export const createPaymentIntent = async (
       const storedCodeLabel = (booking.payment as any)?.discount?.codeLabel;
       const requestedCodeLabel = discountCode ? discountCode.trim().toUpperCase() : undefined;
       const codeMatches = (storedCodeLabel || undefined) === (requestedCodeLabel || undefined);
-      if (booking.payment.status === 'pending' && isMatchingPendingMilestoneIntent && codeMatches) {
+      const storedPoints = Number((booking.payment as any)?.discount?.pointsRedeemed) || 0;
+      const pointsMatch = storedPoints === (Number(pointsToRedeem) || 0);
+      if (booking.payment.status === 'pending' && isMatchingPendingMilestoneIntent && codeMatches && pointsMatch) {
         console.log(`♻️  Reusing existing PaymentIntent for booking ${booking._id}: ${booking.payment.stripePaymentIntentId}`);
         return {
           success: true,

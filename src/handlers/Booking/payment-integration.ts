@@ -900,7 +900,7 @@ export const ensurePaymentIntent = async (req: Request, res: Response) => {
     const codeMatchesStored = storedCodeLabel === requestedCodeLabel;
 
     const requestedPoints = parseInt(pts) || 0;
-    const storedPoints = Number((booking.payment as any)?.pointsToRedeem) || 0;
+    const storedPoints = Number((booking.payment as any)?.discount?.pointsRedeemed) || 0;
     const pointsMatchStored = storedPoints === requestedPoints;
 
     if (

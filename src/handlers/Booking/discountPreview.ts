@@ -16,7 +16,7 @@ export const getDiscountPreview = async (req: Request, res: Response) => {
     const { bookingId } = req.params;
     const userId = (req as any).user?._id?.toString();
     const pointsToRedeem = parseInt(req.query.pointsToRedeem as string) || 0;
-    const discountCodeInput = (req.query.code as string) || '';
+    const discountCodeInput = typeof req.query.code === 'string' ? req.query.code : '';
 
     if (!userId) {
       return res.status(401).json({

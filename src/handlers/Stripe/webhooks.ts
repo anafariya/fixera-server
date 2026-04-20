@@ -277,9 +277,23 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
     if (codeId && codeAmount > 0 && booking.customer) {
       const session = await mongoose.startSession();
       try {
-        let limitReached = false;
+        let limitReached: 'global' | 'perUser' | null = null;
         await session.withTransaction(async () => {
-          limitReached = false;
+          limitReached = null;
+          const codeDoc = await DiscountCode.findById(codeId).session(session);
+          if (!codeDoc) {
+            limitReached = 'global';
+            return;
+          }
+          const perUserLimit = Number(codeDoc.perUserLimit) > 0 ? Number(codeDoc.perUserLimit) : 1;
+          const userUsage = await DiscountCodeUsage.countDocuments(
+            { code: codeId, user: booking.customer },
+            { session }
+          );
+          if (userUsage >= perUserLimit) {
+            limitReached = 'perUser';
+            return;
+          }
           const incremented = await DiscountCode.findOneAndUpdate(
             {
               _id: codeId,
@@ -293,7 +307,7 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
             { new: true, session }
           );
           if (!incremented) {
-            limitReached = true;
+            limitReached = 'global';
             return;
           }
           await DiscountCodeUsage.create([{
@@ -305,8 +319,10 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
             redeemedAt: now,
           }], { session });
         });
-        if (limitReached) {
+        if (limitReached === 'global') {
           console.warn(`Discount code ${codeLabel || codeId} usageLimit already reached; skipping usage record for booking ${bookingId}`);
+        } else if (limitReached === 'perUser') {
+          console.warn(`Discount code ${codeLabel || codeId} perUserLimit already reached for customer ${booking.customer}; skipping usage record for booking ${bookingId}`);
         }
       } catch (codeError: any) {
         if (codeError?.code === 11000) {
