@@ -72,7 +72,11 @@ export const getPublicCmsContentBySlug = async (req: Request, res: Response) => 
 
     const doc = await CmsContent.findOne({ type, slug, locale, status: "published" })
       .populate("author", "name")
-      .populate("relatedContent", "title slug type excerpt coverImage publishedAt")
+      .populate({
+        path: "relatedContent",
+        match: { status: "published" },
+        select: "title slug type excerpt coverImage publishedAt",
+      })
       .populate("relatedServices", "name slug")
       .lean();
 
