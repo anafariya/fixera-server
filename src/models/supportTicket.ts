@@ -42,8 +42,8 @@ const supportTicketSchema = new Schema<ISupportTicket>(
   { timestamps: true }
 );
 
-supportTicketSchema.index({ userId: 1, createdAt: -1 });
-supportTicketSchema.index({ status: 1, createdAt: -1 });
+supportTicketSchema.index({ userId: 1, updatedAt: -1 });
+supportTicketSchema.index({ status: 1, updatedAt: -1 });
 
 const SupportTicket = model<ISupportTicket>("SupportTicket", supportTicketSchema);
 export default SupportTicket;

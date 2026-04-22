@@ -94,15 +94,32 @@ export const adminUpdateMeetingRequest = async (req: Request, res: Response) => 
     const doc = await MeetingRequest.findById(id);
     if (!doc) return res.status(404).json({ success: false, msg: "Request not found" });
 
-    if (typeof req.body?.status === "string" && MEETING_REQUEST_STATUSES.includes(req.body.status)) {
-      doc.status = req.body.status as MeetingRequestStatus;
+    const nextStatus =
+      typeof req.body?.status === "string" && MEETING_REQUEST_STATUSES.includes(req.body.status)
+        ? (req.body.status as MeetingRequestStatus)
+        : undefined;
+
+    let parsedScheduledAt: Date | undefined;
+    if (req.body?.scheduledAt !== undefined && req.body?.scheduledAt !== null && req.body?.scheduledAt !== "") {
+      const when = new Date(req.body.scheduledAt);
+      if (Number.isNaN(when.getTime())) {
+        return res.status(400).json({ success: false, msg: "Invalid scheduledAt date" });
+      }
+      parsedScheduledAt = when;
     }
+
+    const willBeScheduled = (nextStatus ?? doc.status) === "scheduled";
+    if (willBeScheduled && !parsedScheduledAt && !doc.scheduledAt) {
+      return res.status(400).json({
+        success: false,
+        msg: "scheduledAt is required when status is 'scheduled'",
+      });
+    }
+
+    if (nextStatus) doc.status = nextStatus;
+    if (parsedScheduledAt) doc.scheduledAt = parsedScheduledAt;
     if (typeof req.body?.adminResponse === "string") {
       doc.adminResponse = req.body.adminResponse.trim().slice(0, 2000);
-    }
-    if (req.body?.scheduledAt) {
-      const when = new Date(req.body.scheduledAt);
-      if (!Number.isNaN(when.getTime())) doc.scheduledAt = when;
     }
 
     await doc.save();

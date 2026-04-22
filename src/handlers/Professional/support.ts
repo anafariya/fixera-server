@@ -86,8 +86,15 @@ export const createMeetingRequest = async (req: Request, res: Response) => {
     const user = req.user as IUser;
     const topic = typeof req.body?.topic === "string" ? req.body.topic.trim() : "";
     const preferredTimes = typeof req.body?.preferredTimes === "string" ? req.body.preferredTimes.trim() : "";
-    const durationRaw = Number(req.body?.durationMinutes);
-    const durationMinutes = Number.isFinite(durationRaw) && durationRaw >= 15 && durationRaw <= 240 ? durationRaw : 30;
+    const durationProvided = req.body?.durationMinutes !== undefined && req.body?.durationMinutes !== null;
+    let durationMinutes = 30;
+    if (durationProvided) {
+      const durationRaw = Number(req.body.durationMinutes);
+      if (!Number.isFinite(durationRaw) || durationRaw < 15 || durationRaw > 240) {
+        return res.status(400).json({ success: false, msg: "durationMinutes must be between 15 and 240" });
+      }
+      durationMinutes = durationRaw;
+    }
 
     if (!topic || topic.length > 200) {
       return res.status(400).json({ success: false, msg: "Topic is required (max 200 chars)" });
