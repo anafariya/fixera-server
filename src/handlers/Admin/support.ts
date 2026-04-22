@@ -10,6 +10,19 @@ import { IUser } from "../../models/user";
 
 const isValidObjectId = (id: string): boolean => mongoose.Types.ObjectId.isValid(id);
 
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 200;
+
+const parsePagination = (req: Request): { page: number; limit: number; skip: number } => {
+  const rawPage = Number(req.query.page ?? 1);
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.trunc(rawPage) : 1;
+  const rawLimit = Number(req.query.limit ?? DEFAULT_LIMIT);
+  const limit = Number.isFinite(rawLimit) && rawLimit >= 1
+    ? Math.min(Math.trunc(rawLimit), MAX_LIMIT)
+    : DEFAULT_LIMIT;
+  return { page, limit, skip: (page - 1) * limit };
+};
+
 export const adminListTickets = async (req: Request, res: Response) => {
   try {
     const statusQuery = typeof req.query.status === "string" ? req.query.status : undefined;
@@ -21,13 +34,25 @@ export const adminListTickets = async (req: Request, res: Response) => {
       filter.status = statusQuery;
     }
 
+    const { page, limit, skip } = parsePagination(req);
+
     await connectDB();
-    const items = await SupportTicket.find(filter)
-      .populate("userId", "name email role")
-      .sort({ updatedAt: -1 })
-      .limit(500)
-      .lean();
-    return res.status(200).json({ success: true, data: { items } });
+    const [items, total] = await Promise.all([
+      SupportTicket.find(filter)
+        .populate("userId", "name email role")
+        .sort({ updatedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      SupportTicket.countDocuments(filter),
+    ]);
+    return res.status(200).json({
+      success: true,
+      data: {
+        items,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      },
+    });
   } catch (error) {
     console.error("Admin list tickets error:", error);
     return res.status(500).json({ success: false, msg: "Failed to load tickets" });
@@ -56,14 +81,11 @@ export const adminUpdateTicket = async (req: Request, res: Response) => {
 
     const hasReply = typeof req.body?.reply === "string" && req.body.reply.trim();
 
-    if (hasReply) {
-      const effectiveStatus = nextStatus ?? ticket.status;
-      if (effectiveStatus === "closed") {
-        return res.status(400).json({
-          success: false,
-          msg: "Cannot reply on a closed ticket. Reopen it by setting a non-closed status first.",
-        });
-      }
+    if (hasReply && ticket.status === "closed" && (nextStatus ?? ticket.status) === "closed") {
+      return res.status(400).json({
+        success: false,
+        msg: "Cannot reply on a closed ticket. Reopen it by setting a non-closed status first.",
+      });
     }
 
     if (nextStatus) ticket.status = nextStatus;
@@ -97,13 +119,25 @@ export const adminListMeetingRequests = async (req: Request, res: Response) => {
       filter.status = statusQuery;
     }
 
+    const { page, limit, skip } = parsePagination(req);
+
     await connectDB();
-    const items = await MeetingRequest.find(filter)
-      .populate("userId", "name email role")
-      .sort({ createdAt: -1 })
-      .limit(500)
-      .lean();
-    return res.status(200).json({ success: true, data: { items } });
+    const [items, total] = await Promise.all([
+      MeetingRequest.find(filter)
+        .populate("userId", "name email role")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      MeetingRequest.countDocuments(filter),
+    ]);
+    return res.status(200).json({
+      success: true,
+      data: {
+        items,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      },
+    });
   } catch (error) {
     console.error("Admin list meeting requests error:", error);
     return res.status(500).json({ success: false, msg: "Failed to load meeting requests" });
@@ -129,6 +163,9 @@ export const adminUpdateMeetingRequest = async (req: Request, res: Response) => 
 
     let parsedScheduledAt: Date | undefined;
     if (req.body?.scheduledAt !== undefined && req.body?.scheduledAt !== null && req.body?.scheduledAt !== "") {
+      if (typeof req.body.scheduledAt !== "string" || !req.body.scheduledAt.trim()) {
+        return res.status(400).json({ success: false, msg: "Invalid scheduledAt date" });
+      }
       const when = new Date(req.body.scheduledAt);
       if (Number.isNaN(when.getTime())) {
         return res.status(400).json({ success: false, msg: "Invalid scheduledAt date" });
