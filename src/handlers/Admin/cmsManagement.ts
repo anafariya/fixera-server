@@ -18,6 +18,7 @@ import {
   parseS3KeyFromUrl,
   deleteFromS3,
 } from "../../utils/s3Upload";
+import { presignCmsDoc, presignCmsDocs } from "../../utils/cmsPresign";
 
 const toSlug = (input: string): string =>
   input
@@ -106,10 +107,12 @@ export const listCmsContent = async (req: Request, res: Response) => {
       CmsContent.countDocuments(filter),
     ]);
 
+    const presigned = await presignCmsDocs(items);
+
     return res.status(200).json({
       success: true,
       data: {
-        items,
+        items: presigned,
         pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
       },
     });
@@ -137,7 +140,8 @@ export const getCmsContentById = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, msg: "Content not found" });
     }
 
-    return res.status(200).json({ success: true, data: doc });
+    const presigned = await presignCmsDoc(doc);
+    return res.status(200).json({ success: true, data: presigned });
   } catch (error) {
     console.error("Get CMS content error:", error);
     return res.status(500).json({ success: false, msg: "Failed to fetch content" });
@@ -190,6 +194,11 @@ export const createCmsContent = async (req: Request, res: Response) => {
       return res.status(409).json({ success: false, msg: "Slug already exists for this type and locale" });
     }
 
+    const authorOverride =
+      typeof body.authorOverride === "string" && body.authorOverride.trim()
+        ? body.authorOverride.trim().slice(0, 120)
+        : undefined;
+
     const doc = await CmsContent.create({
       type,
       title,
@@ -202,12 +211,14 @@ export const createCmsContent = async (req: Request, res: Response) => {
       tags: type === "blog" || type === "news" ? sanitizeStringArray(body.tags) : [],
       status,
       author: admin._id,
+      authorOverride,
       seo: pickSeo(body.seo),
       relatedContent: sanitizeObjectIdArray(body.relatedContent),
       relatedServices: sanitizeObjectIdArray(body.relatedServices),
     });
 
-    return res.status(201).json({ success: true, data: doc });
+    const presigned = await presignCmsDoc(doc.toObject());
+    return res.status(201).json({ success: true, data: presigned });
   } catch (error: any) {
     if (error?.code === 11000) {
       return res.status(409).json({ success: false, msg: "Slug already exists for this type and locale" });
@@ -304,6 +315,11 @@ export const updateCmsContent = async (req: Request, res: Response) => {
     if (Array.isArray(body.relatedContent)) doc.relatedContent = sanitizeObjectIdArray(body.relatedContent);
     if (Array.isArray(body.relatedServices)) doc.relatedServices = sanitizeObjectIdArray(body.relatedServices);
 
+    if (typeof body.authorOverride === "string") {
+      const v = body.authorOverride.trim().slice(0, 120);
+      doc.authorOverride = v || undefined;
+    }
+
     await doc.save();
 
     if (previousCoverToCleanup) {
@@ -315,7 +331,8 @@ export const updateCmsContent = async (req: Request, res: Response) => {
       }
     }
 
-    return res.status(200).json({ success: true, data: doc });
+    const presigned = await presignCmsDoc(doc.toObject());
+    return res.status(200).json({ success: true, data: presigned });
   } catch (error: any) {
     if (error?.code === 11000) {
       return res.status(409).json({ success: false, msg: "Slug already exists for this type and locale" });
@@ -351,6 +368,34 @@ export const deleteCmsContent = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Delete CMS content error:", error);
     return res.status(500).json({ success: false, msg: "Failed to delete content" });
+  }
+};
+
+export const getCmsPreviewBySlug = async (req: Request, res: Response) => {
+  try {
+    const type = req.params.type as CmsContentType;
+    if (!CMS_CONTENT_TYPES.includes(type)) {
+      return res.status(404).json({ success: false, msg: "Unknown content type" });
+    }
+    const slug = (req.params.slug || "").toLowerCase();
+    if (!slug) return res.status(404).json({ success: false, msg: "Not found" });
+
+    const locale = typeof req.query.locale === "string" ? req.query.locale.toLowerCase() : "en";
+
+    await connecToDatabase();
+    const doc = await CmsContent.findOne({ type, slug, locale })
+      .populate("author", "name email")
+      .populate({ path: "relatedContent", select: "title slug type excerpt coverImage publishedAt" })
+      .populate("relatedServices", "name slug")
+      .lean();
+
+    if (!doc) return res.status(404).json({ success: false, msg: "Not found" });
+
+    const presigned = await presignCmsDoc(doc);
+    return res.status(200).json({ success: true, data: presigned });
+  } catch (error) {
+    console.error("Admin CMS preview error:", error);
+    return res.status(500).json({ success: false, msg: "Failed to load preview" });
   }
 };
 

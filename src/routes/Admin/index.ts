@@ -78,8 +78,16 @@ import {
   deleteCmsContent,
   uploadCmsImage,
   listFaqCategories,
+  getCmsPreviewBySlug,
 } from "../../handlers/Admin/cmsManagement";
 import { uploadProfileImage as cmsImageMulter } from "../../utils/s3Upload";
+import { getAdminSiteSettings, updateAdminSiteSettings } from "../../handlers/Admin/siteSettings";
+import {
+  adminListTickets,
+  adminUpdateTicket,
+  adminListMeetingRequests,
+  adminUpdateMeetingRequest,
+} from "../../handlers/Admin/support";
 
 const adminRouter = Router();
 
@@ -159,10 +167,20 @@ adminRouter.route('/favorites/:id').delete(deleteFavorite);
 // Platform settings routes
 adminRouter.route('/platform-settings').get(getPlatformSettings).put(updatePlatformSettings);
 
+// Site settings (social media links etc)
+adminRouter.route('/site-settings').get(getAdminSiteSettings).put(updateAdminSiteSettings);
+
+// Professional support management
+adminRouter.route('/support/tickets').get(adminListTickets);
+adminRouter.route('/support/tickets/:id').patch(adminUpdateTicket);
+adminRouter.route('/support/meeting-requests').get(adminListMeetingRequests);
+adminRouter.route('/support/meeting-requests/:id').patch(adminUpdateMeetingRequest);
+
 // CMS management routes
 adminRouter.route('/cms').get(listCmsContent).post(createCmsContent);
 adminRouter.route('/cms/faq-categories').get(listFaqCategories);
 adminRouter.route('/cms/upload-image').post(cmsImageMulter.single('image'), uploadCmsImage);
+adminRouter.route('/cms/preview/:type/:slug').get(getCmsPreviewBySlug);
 adminRouter.route('/cms/:id').get(getCmsContentById).put(updateCmsContent).delete(deleteCmsContent);
 
 // Manual scheduler triggers

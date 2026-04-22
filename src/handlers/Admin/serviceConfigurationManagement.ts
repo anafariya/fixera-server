@@ -1,5 +1,41 @@
 import { Request, Response } from 'express';
 import ServiceConfiguration from '../../models/serviceConfiguration';
+import CmsContent from '../../models/cmsContent';
+import { IUser } from '../../models/user';
+
+const toSlug = (input: string): string =>
+    (input || '')
+        .toLowerCase()
+        .trim()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 200);
+
+async function ensureServiceLanding(serviceName: string, adminId?: string) {
+    try {
+        const slug = toSlug(serviceName);
+        if (!slug) return;
+        // Avoid duplicates for common renamed variants (e.g. "plumbing" vs "plumbing-services")
+        const candidateSlugs = [slug, `${slug}-services`, slug.replace(/-services$/, '')].filter((s, i, a) => s && a.indexOf(s) === i);
+        const existing = await CmsContent.findOne({ type: 'landing', slug: { $in: candidateSlugs }, locale: 'en' });
+        if (existing) return;
+        await CmsContent.create({
+            type: 'landing',
+            title: serviceName,
+            slug,
+            locale: 'en',
+            body: '',
+            status: 'draft',
+            author: adminId,
+            tags: [],
+            seo: {},
+        });
+    } catch (err) {
+        console.error('[ensureServiceLanding] failed to auto-create landing:', err);
+    }
+}
 
 /**
  * Get all service configurations with optional filters
@@ -84,6 +120,9 @@ export const createServiceConfiguration = async (req: Request, res: Response) =>
         }
 
         const configuration = await ServiceConfiguration.create(configurationData);
+
+        const admin = (req as Request & { admin?: IUser }).admin;
+        await ensureServiceLanding(configuration.service, admin?._id?.toString());
 
         res.status(201).json({
             success: true,
