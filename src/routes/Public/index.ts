@@ -20,7 +20,9 @@ import {
   getPublicCmsContentBySlug,
   listPublicFaq,
   listCmsSitemapEntries,
+  listPublicPolicyLinks,
 } from "../../handlers/Public/cms";
+import { getPublicSiteSettings } from "../../handlers/Public/siteSettings";
 
 // Public routes - accessible without authentication
 const publicRouter = Router();
@@ -79,9 +81,13 @@ publicRouter
   .route("/projects/:id/favorites-count")
   .get(schedulingRateLimiter, getPublicProjectFavoriteCount);
 
+// Public site settings (social links etc)
+publicRouter.route("/site-settings").get(getPublicSiteSettings);
+
 // CMS public endpoints
 publicRouter.route("/cms/sitemap").get(listCmsSitemapEntries);
 publicRouter.route("/cms/faq").get(listPublicFaq);
+publicRouter.route("/cms/policy-links").get(listPublicPolicyLinks);
 publicRouter.route("/cms/:type").get(listPublicCmsContent);
 publicRouter.route("/cms/:type/:slug").get(getPublicCmsContentBySlug);
 

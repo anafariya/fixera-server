@@ -6,9 +6,10 @@ import CmsContent, {
   FAQ_CATEGORY_SLUGS,
 } from "../../models/cmsContent";
 import connectDB from "../../config/db";
+import { presignCmsDoc, presignCmsDocs } from "../../utils/cmsPresign";
 
 const LISTING_FIELDS =
-  "type title slug locale excerpt coverImage tags publishedAt seo category author updatedAt";
+  "type title slug locale excerpt coverImage tags publishedAt seo category author authorOverride updatedAt";
 
 const BOT_UA_RE =
   /bot|crawl|spider|slurp|bingpreview|facebookexternalhit|linkedinbot|twitterbot|whatsapp|telegram|prerender|headlesschrome|lighthouse/i;
@@ -48,10 +49,12 @@ export const listPublicCmsContent = async (req: Request, res: Response) => {
       CmsContent.countDocuments(filter),
     ]);
 
+    const presigned = await presignCmsDocs(items);
+
     return res.status(200).json({
       success: true,
       data: {
-        items,
+        items: presigned,
         pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
       },
     });
@@ -94,10 +97,35 @@ export const getPublicCmsContentBySlug = async (req: Request, res: Response) => 
       );
     }
 
-    return res.status(200).json({ success: true, data: doc });
+    const presigned = await presignCmsDoc(doc);
+    return res.status(200).json({ success: true, data: presigned });
   } catch (error) {
     console.error("Public get CMS content error:", error);
     return res.status(500).json({ success: false, msg: "Failed to load content" });
+  }
+};
+
+export const listPublicPolicyLinks = async (req: Request, res: Response) => {
+  try {
+    const locale = typeof req.query.locale === "string" ? req.query.locale.toLowerCase() : "en";
+
+    await connectDB();
+    const items = await CmsContent.find({ type: "policy", status: "published", locale })
+      .select("title slug updatedAt publishedAt")
+      .sort({ title: 1 })
+      .lean();
+
+    const RESERVED: Record<string, string> = { "privacy-policy": "/privacy-policy" };
+    const payload = items.map((i) => ({
+      title: i.title,
+      slug: i.slug,
+      path: RESERVED[i.slug] || `/pages/${i.slug}`,
+    }));
+
+    return res.status(200).json({ success: true, data: { items: payload } });
+  } catch (error) {
+    console.error("Public policy-links error:", error);
+    return res.status(500).json({ success: false, msg: "Failed to load policy links" });
   }
 };
 

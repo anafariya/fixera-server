@@ -39,6 +39,7 @@ export interface ICmsContent extends Document {
   tags: string[];
   status: CmsContentStatus;
   author?: Types.ObjectId;
+  authorOverride?: string;
   publishedAt?: Date;
   seo: ICmsSeo;
   relatedContent: Types.ObjectId[];
@@ -83,6 +84,7 @@ const CmsContentSchema = new Schema<ICmsContent>(
       index: true,
     },
     author: { type: Schema.Types.ObjectId, ref: "User" },
+    authorOverride: { type: String, trim: true, maxlength: 120 },
     publishedAt: { type: Date },
     seo: { type: CmsSeoSchema, default: () => ({}) },
     relatedContent: [{ type: Schema.Types.ObjectId, ref: "CmsContent" }],
