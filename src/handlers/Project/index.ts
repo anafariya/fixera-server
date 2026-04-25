@@ -23,6 +23,7 @@ import {
 import { resolveAvailability } from "../../utils/availabilityHelpers";
 import { normalizePreparationDuration } from "../../utils/projectDurations";
 import { computeProjectDiff, determineReapprovalType } from "../../utils/projectDiff";
+import { toSlug } from "../../utils/slug";
 // import { seedServiceCategories } from '../../scripts/seedProject';
 
 let cachedWindowFieldsSupport: boolean | null = null;
@@ -370,11 +371,22 @@ export const getCategoryServices = async (req: Request, res: Response) => {
     const { categorySlug } = req.params;
     const country = (req.query.country as string) || "BE";
 
-    const category = await ServiceCategory.findOne({
+    let category = await ServiceCategory.findOne({
       slug: categorySlug,
       isActive: true,
       countries: country,
     });
+
+    if (!category) {
+      const normalized = toSlug(categorySlug);
+      if (normalized && normalized !== categorySlug) {
+        category = await ServiceCategory.findOne({
+          slug: normalized,
+          isActive: true,
+          countries: country,
+        });
+      }
+    }
 
     if (!category) {
       return res.status(404).json({ error: "Category not found" });
@@ -1517,6 +1529,10 @@ export const getProjectAvailableSlots = async (req: Request, res: Response) => {
     const date = req.query.date as string | undefined;
     const subprojectIndexRaw = req.query.subprojectIndex as string | undefined;
 
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ success: false, error: "Project not found" });
+    }
+
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({
         success: false,
@@ -1524,7 +1540,7 @@ export const getProjectAvailableSlots = async (req: Request, res: Response) => {
       });
     }
 
-    const project = await Project.findById(id).select("subprojects");
+    const project = await Project.findOne({ _id: id, status: "published" }).select("subprojects");
     if (!project) {
       return res.status(404).json({ success: false, error: "Project not found" });
     }

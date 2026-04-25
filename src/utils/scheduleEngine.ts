@@ -2571,6 +2571,22 @@ export const getProjectAvailableSlotsForDate = async ({
   const durations = getProjectDurations(project, subprojectIndex);
   if (!durations || !durations.execution?.value) return null;
 
+  if (durations.execution.unit !== "hours") {
+    return { slots: [], mode: "days" };
+  }
+
+  const dateParts = startDate.split("-").map(Number);
+  if (dateParts.length < 3) return null;
+  const [year, month, day] = dateParts;
+  const zonedDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+  if (
+    zonedDate.getUTCFullYear() !== year ||
+    zonedDate.getUTCMonth() + 1 !== month ||
+    zonedDate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
   const availability = resolveAvailability(professional.companyAvailability);
   const timeZone = professional.businessInfo?.timezone || "UTC";
   const { isHoliday } = buildHolidayChecker(professional, timeZone);
@@ -2606,15 +2622,6 @@ export const getProjectAvailableSlotsForDate = async ({
     timeZone,
     isHoliday
   );
-
-  const dateParts = startDate.split("-").map(Number);
-  if (dateParts.length < 3) return null;
-  const [year, month, day] = dateParts;
-  const zonedDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
-
-  if (durations.execution.unit !== "hours") {
-    return { slots: [], mode: "days" };
-  }
 
   const rawSlots = getAvailableSlotsForDate(
     zonedDate,

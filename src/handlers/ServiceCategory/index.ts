@@ -1,15 +1,6 @@
 import { Request, Response } from "express";
 import ServiceConfiguration from "../../models/serviceConfiguration";
-
-const toSlug = (input: string): string =>
-  (input || "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 200);
+import { toSlug } from "../../utils/slug";
 
 /**
  * Get all active service categories with nested services

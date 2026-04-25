@@ -765,16 +765,18 @@ export const getMyBookings = async (req: Request, res: Response, next: NextFunct
     }
 
     if (customerNameFilter && typeof customerNameFilter === 'string' && user.role === 'professional') {
-      const escaped = customerNameFilter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(escaped, 'i');
-      const matchingCustomerIds = await User.find({ name: regex }).select("_id");
-      if (matchingCustomerIds.length > 0) {
-        query.$and = (query.$and || []).concat([{
-          customer: { $in: matchingCustomerIds.map(c => c._id) },
-        }]);
-      } else {
-        // No customer matches — force empty result set.
-        query.$and = (query.$and || []).concat([{ customer: null }]);
+      const trimmed = customerNameFilter.trim();
+      if (trimmed.length >= 2) {
+        const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escaped, 'i');
+        const matchingCustomerIds = await User.find({ role: 'customer', name: regex }).select('_id');
+        if (matchingCustomerIds.length > 0) {
+          query.$and = (query.$and || []).concat([{
+            customer: { $in: matchingCustomerIds.map(c => c._id) },
+          }]);
+        } else {
+          query.$and = (query.$and || []).concat([{ customer: null }]);
+        }
       }
     }
 
@@ -847,9 +849,7 @@ export const getBookingById = async (req: Request, res: Response, next: NextFunc
         ? 'name email phone customerType location vatNumber totalSpent'
         : 'name email phone customerType location')
       .populate('professional', professionalFields)
-      .populate('project', isAdmin
-        ? 'title description pricing category service team rfqQuestions postBookingQuestions professionalId extraOptions termsConditions subprojects'
-        : 'title description pricing category service team rfqQuestions postBookingQuestions professionalId extraOptions termsConditions subprojects')
+      .populate('project', 'title description pricing category service team rfqQuestions postBookingQuestions professionalId extraOptions termsConditions subprojects')
       .populate('assignedTeamMembers', 'name email');
 
     const booking = await bookingQuery;
