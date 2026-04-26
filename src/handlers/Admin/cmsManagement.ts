@@ -17,6 +17,7 @@ import {
   validateImageFileBuffer,
   parseS3KeyFromUrl,
   deleteFromS3,
+  presignS3Url,
 } from "../../utils/s3Upload";
 import { presignCmsDoc, presignCmsDocs } from "../../utils/cmsPresign";
 import { toSlug } from "../../utils/slug";
@@ -406,8 +407,9 @@ export const uploadCmsImage = async (req: Request, res: Response) => {
 
     const fileName = generateFileName(file.originalname, admin._id.toString(), "cms");
     const result = await uploadToS3(file, fileName);
+    const signedUrl = (await presignS3Url(result.url)) ?? result.url;
 
-    return res.status(200).json({ success: true, data: { url: result.url, key: result.key } });
+    return res.status(200).json({ success: true, data: { url: signedUrl, key: result.key } });
   } catch (error) {
     console.error("Upload CMS image error:", error);
     return res.status(500).json({ success: false, msg: "Failed to upload image" });
