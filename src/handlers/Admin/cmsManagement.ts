@@ -407,7 +407,18 @@ export const uploadCmsImage = async (req: Request, res: Response) => {
 
     const fileName = generateFileName(file.originalname, admin._id.toString(), "cms");
     const result = await uploadToS3(file, fileName);
-    const signedUrl = (await presignS3Url(result.url)) ?? result.url;
+
+    let signedUrl: string | null = null;
+    try {
+      signedUrl = await presignS3Url(result.url);
+    } catch (presignError) {
+      console.error("Upload CMS image presign error:", { url: result.url, error: presignError });
+      return res.status(500).json({ success: false, message: "Failed to generate signed URL" });
+    }
+    if (!signedUrl) {
+      console.error("Upload CMS image presign error: presignS3Url returned null", { url: result.url });
+      return res.status(500).json({ success: false, message: "Failed to generate signed URL" });
+    }
 
     return res.status(200).json({ success: true, data: { url: signedUrl, key: result.key } });
   } catch (error) {
