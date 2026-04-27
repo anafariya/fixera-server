@@ -69,73 +69,42 @@ const RESERVED_LANDING_SLOTS: Array<{ slug: string; label: string; usedFor: stri
   { slug: "about", label: "About", usedFor: "About page (overrides hardcoded content)" },
 ];
 
-export const listCmsLandingSlots = async (req: Request, res: Response) => {
+async function buildLandingSlotDefs() {
+  const configs = await ServiceConfiguration.find({}).select("service category").lean();
+  const seen = new Set<string>();
+  const services: Array<{ slug: string; label: string; category?: string }> = [];
+  for (const c of configs) {
+    const name = (c.service || "").trim();
+    if (!name) continue;
+    const slug = toSlug(name);
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    services.push({ slug, label: name, category: (c.category || "").trim() || undefined });
+  }
+  services.sort((a, b) => a.label.localeCompare(b.label));
+
+  const reservedSlugs = new Set(RESERVED_LANDING_SLOTS.map((r) => r.slug));
+  return [
+    ...RESERVED_LANDING_SLOTS.map((r) => ({ ...r, category: undefined as string | undefined, reserved: true })),
+    ...services
+      .filter((s) => !reservedSlugs.has(s.slug))
+      .map((s) => ({
+        slug: s.slug,
+        label: s.label,
+        usedFor: s.category ? `Service · ${s.category}` : "Service",
+        category: s.category,
+        reserved: false,
+      })),
+  ];
+}
+
+export const listCmsLandingSlots = async (_req: Request, res: Response) => {
   try {
-    const admin = (req as Request & { admin?: IUser }).admin;
     await connecToDatabase();
-
-    const configs = await ServiceConfiguration.find({}).select("service category").lean();
-    const seen = new Set<string>();
-    const services: Array<{ slug: string; label: string; category?: string }> = [];
-    for (const c of configs) {
-      const name = (c.service || "").trim();
-      if (!name) continue;
-      const slug = toSlug(name);
-      if (!slug || seen.has(slug)) continue;
-      seen.add(slug);
-      services.push({ slug, label: name, category: (c.category || "").trim() || undefined });
-    }
-    services.sort((a, b) => a.label.localeCompare(b.label));
-
-    const reservedSlugs = new Set(RESERVED_LANDING_SLOTS.map((r) => r.slug));
-    const slotDefs: Array<{ slug: string; label: string; usedFor: string; category?: string; reserved: boolean }> = [
-      ...RESERVED_LANDING_SLOTS.map((r) => ({ ...r, category: undefined as string | undefined, reserved: true })),
-      ...services
-        .filter((s) => !reservedSlugs.has(s.slug))
-        .map((s) => ({
-          slug: s.slug,
-          label: s.label,
-          usedFor: s.category ? `Service · ${s.category}` : "Service",
-          category: s.category,
-          reserved: false,
-        })),
-    ];
-
+    const slotDefs = await buildLandingSlotDefs();
     const slugs = slotDefs.map((s) => s.slug);
     const existing = await CmsContent.find({ type: "landing", slug: { $in: slugs }, locale: "en" }).lean();
     const bySlug = new Map(existing.map((doc) => [doc.slug, doc]));
-
-    const missing = slotDefs.filter((s) => !bySlug.has(s.slug));
-    if (missing.length > 0) {
-      const docsToCreate = missing.map((s) => ({
-        type: "landing" as const,
-        title: s.label,
-        slug: s.slug,
-        locale: "en",
-        body: "",
-        status: "draft" as const,
-        author: admin?._id,
-        tags: [],
-        seo: {},
-      }));
-      try {
-        await CmsContent.insertMany(docsToCreate, { ordered: false });
-      } catch (err: any) {
-        const allDuplicates =
-          err?.code === 11000 ||
-          (Array.isArray(err?.writeErrors) &&
-            err.writeErrors.length > 0 &&
-            err.writeErrors.every((e: any) => (e?.code ?? e?.err?.code) === 11000));
-        if (!allDuplicates) {
-          console.error("[listCmsLandingSlots] insertMany failed with non-duplicate errors:", err);
-          throw err;
-        }
-      }
-      const refreshed = await CmsContent.find({ type: "landing", slug: { $in: missing.map((m) => m.slug) }, locale: "en" }).lean();
-      for (const doc of refreshed) {
-        bySlug.set(doc.slug, doc);
-      }
-    }
 
     const slots = slotDefs.map((s) => {
       const item = bySlug.get(s.slug);
@@ -160,6 +129,53 @@ export const listCmsLandingSlots = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("List CMS landing slots error:", error);
     return res.status(500).json({ success: false, msg: "Failed to list landing slots" });
+  }
+};
+
+export const syncCmsLandingSlots = async (req: Request, res: Response) => {
+  try {
+    const admin = (req as Request & { admin?: IUser }).admin;
+    await connecToDatabase();
+    const slotDefs = await buildLandingSlotDefs();
+    const slugs = slotDefs.map((s) => s.slug);
+    const existing = await CmsContent.find({ type: "landing", slug: { $in: slugs }, locale: "en" }).select("slug").lean();
+    const existingSlugs = new Set(existing.map((d) => d.slug));
+    const missing = slotDefs.filter((s) => !existingSlugs.has(s.slug));
+
+    if (missing.length === 0) {
+      return res.status(200).json({ success: true, data: { created: 0 } });
+    }
+
+    const docsToCreate = missing.map((s) => ({
+      type: "landing" as const,
+      title: s.label,
+      slug: s.slug,
+      locale: "en",
+      body: "",
+      status: "draft" as const,
+      author: admin?._id,
+      tags: [],
+      seo: {},
+    }));
+
+    try {
+      await CmsContent.insertMany(docsToCreate, { ordered: false });
+    } catch (err: any) {
+      const allDuplicates =
+        err?.code === 11000 ||
+        (Array.isArray(err?.writeErrors) &&
+          err.writeErrors.length > 0 &&
+          err.writeErrors.every((e: any) => (e?.code ?? e?.err?.code) === 11000));
+      if (!allDuplicates) {
+        console.error("[syncCmsLandingSlots] insertMany failed with non-duplicate errors:", err);
+        throw err;
+      }
+    }
+
+    return res.status(200).json({ success: true, data: { created: missing.length } });
+  } catch (error) {
+    console.error("Sync CMS landing slots error:", error);
+    return res.status(500).json({ success: false, msg: "Failed to sync landing slots" });
   }
 };
 
