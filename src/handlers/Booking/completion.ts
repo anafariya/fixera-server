@@ -43,6 +43,9 @@ const computeCustomerLoyaltyDiscount = async (customer: any, commissionInclusive
   if (commissionInclusiveAmount <= 0) return { tier: 'Bronze', percentage: 0, amount: 0 };
   try {
     const config = await LoyaltyConfig.getCurrentConfig();
+    if (!config.globalSettings?.isEnabled) return { tier: 'Bronze', percentage: 0, amount: 0 };
+    const minBookingAmount = config.globalSettings.minBookingAmount || 0;
+    if (commissionInclusiveAmount < minBookingAmount) return { tier: 'Bronze', percentage: 0, amount: 0 };
     const activeTiers = (config.tiers || []).filter((t: any) => t.isActive);
     if (activeTiers.length === 0) return { tier: 'Bronze', percentage: 0, amount: 0 };
     const preferredName = customer?.manualCustomerLevelOverride || customer?.loyaltyLevel;
@@ -416,10 +419,12 @@ export const createExtraCostPaymentIntent = async (req: Request, res: Response) 
     const commissionPercent = await getPlatformCommissionPercent();
     const subtotalInclCommission = roundToTwo(extraCostTotal * (1 + commissionPercent / 100));
     const loyalty = await computeCustomerLoyaltyDiscount(booking.customer as any, subtotalInclCommission);
-    const customerChargeAmount = Math.max(0, roundToTwo(subtotalInclCommission - loyalty.amount));
-    // Platform absorbs the loyalty discount: professional still gets paid their full amount,
-    // platform commission is reduced by the loyalty discount.
-    const platformCommissionAmount = roundToTwo(subtotalInclCommission - extraCostTotal - loyalty.amount);
+    // Cap the loyalty discount to the platform's commission margin so the professional is never short-paid.
+    const platformMargin = roundToTwo(subtotalInclCommission - extraCostTotal);
+    const cappedLoyalty = Math.max(0, Math.min(loyalty.amount, platformMargin));
+    (loyalty as any).cappedAmount = cappedLoyalty;
+    const customerChargeAmount = Math.max(0, roundToTwo(subtotalInclCommission - cappedLoyalty));
+    const platformCommissionAmount = roundToTwo(subtotalInclCommission - extraCostTotal - cappedLoyalty);
     const applicationFeeAmount = convertToStripeAmount(Math.max(0, platformCommissionAmount), currency);
 
     const paymentIntent = await stripe.paymentIntents.create({
