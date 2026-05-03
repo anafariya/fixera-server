@@ -112,22 +112,20 @@ const PricingOptionSchema = new Schema<IPricingOption>({
         enum: ['fixed_price', 'price_per_unit'],
         required: true
     },
-    unit: {
-        type: String,
-        required: [function(this: IPricingOption) { return this.pricingType === 'price_per_unit'; }, 'Unit is required for price_per_unit pricing type'],
-        validate: {
-            validator: function(this: IPricingOption, value: string) {
-                if (this.pricingType === 'fixed_price' && value && value.trim()) return false;
-                if (this.pricingType === 'price_per_unit' && (!value || !value.trim())) return false;
-                return true;
-            },
-            message: function(this: any) {
-                if (this.pricingType === 'fixed_price') return 'Unit must be empty for fixed_price pricing type';
-                return 'Unit is required for price_per_unit pricing type';
-            }
-        }
-    }
+    unit: { type: String }
 }, { _id: false });
+
+PricingOptionSchema.pre('validate', function(next) {
+    const pricingType = this.pricingType;
+    const unit = typeof this.unit === 'string' ? this.unit.trim() : this.unit;
+    if (pricingType === 'price_per_unit' && !unit) {
+        return next(new Error('Unit is required for price_per_unit pricing type'));
+    }
+    if (pricingType === 'fixed_price' && unit) {
+        return next(new Error('Unit must be empty for fixed_price pricing type'));
+    }
+    next();
+});
 
 // Extra Option Schema
 const ExtraOptionSchema = new Schema<IExtraOption>({
