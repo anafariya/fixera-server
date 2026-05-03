@@ -168,6 +168,45 @@ const ServiceConfigurationSchema = new Schema<IServiceConfiguration>({
     timestamps: true
 });
 
+function validatePricingOptionsArray(pricingOptions: any): Error | null {
+    if (!Array.isArray(pricingOptions)) return null;
+    for (let i = 0; i < pricingOptions.length; i++) {
+        const opt = pricingOptions[i];
+        if (!opt || typeof opt !== 'object') continue;
+        const pricingType = opt.pricingType;
+        const unit = typeof opt.unit === 'string' ? opt.unit.trim() : opt.unit;
+        if (pricingType === 'price_per_unit' && !unit) {
+            return new Error(`pricingOptions[${i}].unit: Unit is required for price_per_unit pricing type`);
+        }
+        if (pricingType === 'fixed_price' && unit) {
+            return new Error(`pricingOptions[${i}].unit: Unit must be empty for fixed_price pricing type`);
+        }
+    }
+    return null;
+}
+
+ServiceConfigurationSchema.pre('findOneAndUpdate', function(next) {
+    const update: any = this.getUpdate() || {};
+    const candidates = [update.pricingOptions, update.$set?.pricingOptions];
+    for (const candidate of candidates) {
+        if (candidate === undefined) continue;
+        const err = validatePricingOptionsArray(candidate);
+        if (err) return next(err);
+    }
+    next();
+});
+
+ServiceConfigurationSchema.pre('updateOne', function(next) {
+    const update: any = this.getUpdate() || {};
+    const candidates = [update.pricingOptions, update.$set?.pricingOptions];
+    for (const candidate of candidates) {
+        if (candidate === undefined) continue;
+        const err = validatePricingOptionsArray(candidate);
+        if (err) return next(err);
+    }
+    next();
+});
+
 // Indexes for efficient querying
 ServiceConfigurationSchema.index({ category: 1, service: 1, areaOfWork: 1 });
 ServiceConfigurationSchema.index({ isActive: 1, activeCountries: 1 });
