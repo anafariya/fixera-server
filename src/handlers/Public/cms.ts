@@ -39,7 +39,9 @@ export const listPublicCmsContent = async (req: Request, res: Response) => {
 
     const serviceSlug =
       typeof req.query.serviceSlug === "string" ? toSlug(req.query.serviceSlug) : "";
-    if (serviceSlug) filter.relatedServiceSlug = serviceSlug;
+    if (serviceSlug && (type === "blog" || type === "news")) {
+      filter.relatedServiceSlug = serviceSlug;
+    }
 
     await connectDB();
 

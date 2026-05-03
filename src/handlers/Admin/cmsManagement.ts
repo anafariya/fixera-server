@@ -475,7 +475,9 @@ export const updateCmsContent = async (req: Request, res: Response) => {
       doc.authorOverride = v || undefined;
     }
 
-    if (typeof body.relatedServiceSlug === "string") {
+    if (body.relatedServiceSlug === null) {
+      doc.relatedServiceSlug = undefined;
+    } else if (typeof body.relatedServiceSlug === "string") {
       if (doc.type === "blog" || doc.type === "news") {
         const trimmed = body.relatedServiceSlug.trim();
         if (!trimmed) {

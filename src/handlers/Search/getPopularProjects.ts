@@ -17,9 +17,16 @@ export const getPopularProjects = async (req: Request, res: Response) => {
     const serviceFilter =
       typeof service === "string" && service.trim() ? service.trim() : null;
 
+    const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
     const match: Record<string, unknown> = { status: "published" };
     if (serviceFilter) {
-      match.service = { $regex: `^${serviceFilter.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" };
+      const slugified = serviceFilter.toLowerCase().replace(/\s+/g, "-").replace(/-+/g, "-");
+      const humanized = serviceFilter.replace(/-+/g, " ").trim();
+      const variants = Array.from(
+        new Set([serviceFilter, slugified, humanized].filter(Boolean))
+      ).map(escapeRegex);
+      match.service = { $regex: `^(${variants.join("|")})$`, $options: "i" };
     }
 
     const projects: any[] = await Project.aggregate([
