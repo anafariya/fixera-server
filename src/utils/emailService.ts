@@ -1303,14 +1303,14 @@ const sendEmail = async (
 
   if (EMAIL_DEV_NO_SEND) {
     logDevEmail('SKIPPED', to, subject, template, htmlContent);
-    void logEmail({
+    logEmail({
       to,
       subject,
       template,
       status: 'skipped',
       relatedBooking: meta.relatedBooking,
       relatedUser: meta.relatedUser,
-    });
+    }).catch(err => console.error('Failed to write EmailLog:', { to, subject, template }, err));
     return true;
   }
 
@@ -1318,7 +1318,7 @@ const sendEmail = async (
     const errorMessage = 'BREVO_API_KEY is not set';
     console.error(`Cannot send email "${subject}" to ${to}: ${errorMessage}`);
     logDevEmail('FAILED', to, subject, template, htmlContent, errorMessage);
-    void logEmail({
+    logEmail({
       to,
       subject,
       template,
@@ -1326,7 +1326,7 @@ const sendEmail = async (
       errorMessage,
       relatedBooking: meta.relatedBooking,
       relatedUser: meta.relatedUser,
-    });
+    }).catch(err => console.error('Failed to write EmailLog:', { to, subject, template }, err));
     return false;
   }
 
@@ -1338,23 +1338,23 @@ const sendEmail = async (
     sendSmtpEmail.htmlContent = htmlContent;
     sendSmtpEmail.sender = {
       name: 'Fixera Team',
-      email: process.env.FROM_EMAIL || 'anafariya@gmail.com',
+      email: process.env.FROM_EMAIL || 'noreply@fixera.com',
     };
     await emailAPI.sendTransacEmail(sendSmtpEmail);
     logDevEmail('SENT', to, subject, template, htmlContent);
-    void logEmail({
+    logEmail({
       to,
       subject,
       template,
       status: 'sent',
       relatedBooking: meta.relatedBooking,
       relatedUser: meta.relatedUser,
-    });
+    }).catch(err => console.error('Failed to write EmailLog:', { to, subject, template }, err));
     return true;
   } catch (error: any) {
     console.error(`Failed to send email "${subject}" to ${to}:`, error);
     logDevEmail('FAILED', to, subject, template, htmlContent, error?.message || String(error));
-    void logEmail({
+    logEmail({
       to,
       subject,
       template,
@@ -1362,7 +1362,7 @@ const sendEmail = async (
       errorMessage: error?.message || String(error),
       relatedBooking: meta.relatedBooking,
       relatedUser: meta.relatedUser,
-    });
+    }).catch(err => console.error('Failed to write EmailLog:', { to, subject, template }, err));
     return false;
   }
 };
@@ -1598,14 +1598,6 @@ export const sendRfqDeadlineExpiredEmail = async (
       </div>
     </div>
   `;
-  const profResult = await sendEmail(profEmail, 'Quotation Deadline Expired - Fixera', profContent, {
-    template: 'rfq_deadline_expired',
-    relatedBooking: bookingId,
-  });
-  if (!profResult) {
-    console.error(`[Email] Failed to send RFQ deadline expired email to professional: ${profEmail}`);
-  }
-
   // Send to customer
   const custContent = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -1623,10 +1615,14 @@ export const sendRfqDeadlineExpiredEmail = async (
       </div>
     </div>
   `;
-  const custResult = await sendEmail(custEmail, 'Request Update - Fixera', custContent, {
-    template: 'rfq_deadline_expired',
-    relatedBooking: bookingId,
-  });
+  const meta = { template: 'rfq_deadline_expired', relatedBooking: bookingId };
+  const [profResult, custResult] = await Promise.all([
+    sendEmail(profEmail, 'Quotation Deadline Expired - Fixera', profContent, meta),
+    sendEmail(custEmail, 'Request Update - Fixera', custContent, meta),
+  ]);
+  if (!profResult) {
+    console.error(`[Email] Failed to send RFQ deadline expired email to professional: ${profEmail}`);
+  }
   if (!custResult) {
     console.error(`[Email] Failed to send RFQ deadline expired email to customer: ${custEmail}`);
   }
