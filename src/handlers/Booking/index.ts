@@ -1285,7 +1285,7 @@ export const cancelBooking = async (req: Request, res: Response, next: NextFunct
         booking.professional ? User.findById(booking.professional).select('email name').lean() : null,
       ]);
       if (customerUser?.email && professionalUser?.email) {
-        const cancelledBy: 'customer' | 'professional' | 'admin' = isCustomer ? 'customer' : isProfessional ? 'professional' : 'admin';
+        const cancelledBy: 'customer' | 'professional' = isCustomer ? 'customer' : 'professional';
         await sendBookingCancelledEmail(
           customerUser.email,
           professionalUser.email,

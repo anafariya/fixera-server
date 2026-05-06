@@ -1391,7 +1391,10 @@ export const sendRfqReceivedEmail = async (
       </div>
     </div>
   `;
-  return sendEmail(profEmail, 'New Request for Quote - Fixera', content);
+  return sendEmail(profEmail, 'New Request for Quote - Fixera', content, {
+    template: 'rfq_received',
+    relatedBooking: bookingId,
+  });
 };
 
 // Customer notified that professional accepted RFQ
@@ -1414,7 +1417,10 @@ export const sendRfqAcceptedEmail = async (
       </div>
     </div>
   `;
-  return sendEmail(custEmail, 'Your Request Has Been Accepted - Fixera', content);
+  return sendEmail(custEmail, 'Your Request Has Been Accepted - Fixera', content, {
+    template: 'rfq_accepted',
+    relatedBooking: bookingId,
+  });
 };
 
 // Customer notified that professional rejected RFQ
@@ -1440,7 +1446,9 @@ export const sendRfqRejectedEmail = async (
       </div>
     </div>
   `;
-  return sendEmail(custEmail, 'Request Update - Fixera', content);
+  return sendEmail(custEmail, 'Request Update - Fixera', content, {
+    template: 'rfq_rejected',
+  });
 };
 
 // Customer receives quotation
@@ -1467,7 +1475,10 @@ export const sendQuotationReceivedEmail = async (
       </div>
     </div>
   `;
-  return sendEmail(custEmail, `Quotation ${quotationNumber} Received - Fixera`, content);
+  return sendEmail(custEmail, `Quotation ${quotationNumber} Received - Fixera`, content, {
+    template: 'quotation_received',
+    relatedBooking: bookingId,
+  });
 };
 
 // Customer receives updated quotation
@@ -1490,7 +1501,10 @@ export const sendQuotationUpdatedEmail = async (
       </div>
     </div>
   `;
-  return sendEmail(custEmail, `Quotation ${quotationNumber} Updated - Fixera`, content);
+  return sendEmail(custEmail, `Quotation ${quotationNumber} Updated - Fixera`, content, {
+    template: 'quotation_updated',
+    relatedBooking: bookingId,
+  });
 };
 
 // Professional notified that customer accepted quotation
@@ -1510,7 +1524,10 @@ export const sendQuotationAcceptedEmail = async (
       </div>
     </div>
   `;
-  return sendEmail(profEmail, `Quotation ${quotationNumber} Accepted - Fixera`, content);
+  return sendEmail(profEmail, `Quotation ${quotationNumber} Accepted - Fixera`, content, {
+    template: 'quotation_accepted',
+    relatedBooking: bookingId,
+  });
 };
 
 // Professional notified that customer rejected quotation
@@ -1535,7 +1552,9 @@ export const sendQuotationRejectedEmail = async (
       </div>
     </div>
   `;
-  return sendEmail(profEmail, `Quotation Feedback - ${quotationNumber} - Fixera`, content);
+  return sendEmail(profEmail, `Quotation Feedback - ${quotationNumber} - Fixera`, content, {
+    template: 'quotation_rejected',
+  });
 };
 
 // Professional receives RFQ deadline reminder
@@ -1560,7 +1579,10 @@ export const sendRfqDeadlineReminderEmail = async (
       </div>
     </div>
   `;
-  return sendEmail(profEmail, 'Quotation Deadline Reminder - Fixera', content);
+  return sendEmail(profEmail, 'Quotation Deadline Reminder - Fixera', content, {
+    template: 'rfq_deadline_reminder',
+    relatedBooking: bookingId,
+  });
 };
 
 // Both parties notified about expired RFQ deadline
@@ -1580,7 +1602,10 @@ export const sendRfqDeadlineExpiredEmail = async (
       </div>
     </div>
   `;
-  const profResult = await sendEmail(profEmail, 'Quotation Deadline Expired - Fixera', profContent);
+  const profResult = await sendEmail(profEmail, 'Quotation Deadline Expired - Fixera', profContent, {
+    template: 'rfq_deadline_expired',
+    relatedBooking: bookingId,
+  });
   if (!profResult) {
     console.error(`[Email] Failed to send RFQ deadline expired email to professional: ${profEmail}`);
   }
@@ -1602,7 +1627,10 @@ export const sendRfqDeadlineExpiredEmail = async (
       </div>
     </div>
   `;
-  const custResult = await sendEmail(custEmail, 'Request Update - Fixera', custContent);
+  const custResult = await sendEmail(custEmail, 'Request Update - Fixera', custContent, {
+    template: 'rfq_deadline_expired',
+    relatedBooking: bookingId,
+  });
   if (!custResult) {
     console.error(`[Email] Failed to send RFQ deadline expired email to customer: ${custEmail}`);
   }
@@ -1633,7 +1661,10 @@ export const sendDirectQuotationEmail = async (
       </div>
     </div>
   `;
-  return sendEmail(custEmail, `Quotation from ${profName} - Fixera`, content);
+  return sendEmail(custEmail, `Quotation from ${profName} - Fixera`, content, {
+    template: 'direct_quotation',
+    relatedBooking: bookingId,
+  });
 };
 
 // ============================================================
