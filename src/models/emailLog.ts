@@ -1,6 +1,6 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
-export type EmailLogStatus = 'sent' | 'failed';
+export type EmailLogStatus = 'sent' | 'failed' | 'skipped';
 
 export interface IEmailLog extends Document {
   to: string;
@@ -18,7 +18,7 @@ const emailLogSchema = new Schema<IEmailLog>({
   to: { type: String, required: true, trim: true, lowercase: true, maxlength: 320 },
   subject: { type: String, required: true, trim: true, maxlength: 500 },
   template: { type: String, required: true, trim: true, maxlength: 100, default: 'unknown' },
-  status: { type: String, enum: ['sent', 'failed'], required: true },
+  status: { type: String, enum: ['sent', 'failed', 'skipped'], required: true },
   errorMessage: { type: String, trim: true, maxlength: 2000 },
   relatedBooking: { type: mongoose.Schema.Types.ObjectId, ref: 'Booking' },
   relatedUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }

@@ -1284,8 +1284,9 @@ const buildEmailButton = (href: string, label: string, color = '#667eea') => `
   </div>
 `;
 
-const EMAIL_DEV_LOG = process.env.EMAIL_DEV_LOG !== 'false';
+const EMAIL_DEV_LOG = process.env.NODE_ENV !== 'production' && process.env.EMAIL_DEV_LOG !== 'false';
 const EMAIL_DEV_NO_SEND = process.env.EMAIL_DEV_NO_SEND === 'true' || !process.env.BREVO_API_KEY;
+const EMAIL_BODY_PREVIEW_BYTES = 500;
 
 const printDevEmail = (
   to: string,
@@ -1293,7 +1294,7 @@ const printDevEmail = (
   htmlContent: string,
   template: string,
   meta: SendEmailMeta,
-  outcome: 'WOULD-SEND' | 'SENT' | 'FAILED',
+  outcome: 'SKIPPED' | 'SENT' | 'FAILED',
   errorMessage?: string
 ) => {
   if (!EMAIL_DEV_LOG) return;
@@ -1307,9 +1308,12 @@ const printDevEmail = (
   if (meta.relatedUser) console.log(`  user:       ${meta.relatedUser}`);
   if (errorMessage) console.log(`  error:      ${errorMessage}`);
   console.log(`  htmlBytes:  ${htmlContent.length}`);
-  console.log(`--- HTML BODY START ---`);
-  console.log(htmlContent);
-  console.log(`--- HTML BODY END ---`);
+  const truncated = htmlContent.length > EMAIL_BODY_PREVIEW_BYTES;
+  const preview = truncated ? htmlContent.slice(0, EMAIL_BODY_PREVIEW_BYTES) : htmlContent;
+  console.log(`--- HTML BODY PREVIEW (first ${EMAIL_BODY_PREVIEW_BYTES} bytes; full body suppressed to limit PII exposure) ---`);
+  console.log(preview);
+  if (truncated) console.log(`... [truncated ${htmlContent.length - EMAIL_BODY_PREVIEW_BYTES} bytes]`);
+  console.log(`--- HTML BODY PREVIEW END ---`);
   console.log(banner);
 };
 
@@ -1322,12 +1326,12 @@ const sendEmail = async (
   const template = meta.template || 'unknown';
 
   if (EMAIL_DEV_NO_SEND) {
-    printDevEmail(to, subject, htmlContent, template, meta, 'WOULD-SEND');
+    printDevEmail(to, subject, htmlContent, template, meta, 'SKIPPED');
     void logEmail({
       to,
       subject,
       template,
-      status: 'sent',
+      status: 'skipped',
       relatedBooking: meta.relatedBooking,
       relatedUser: meta.relatedUser,
     });

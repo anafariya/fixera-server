@@ -36,7 +36,7 @@ export const listEmailLogs = async (req: Request, res: Response) => {
       query.template = template.trim();
     }
 
-    if (typeof status === 'string' && (status === 'sent' || status === 'failed')) {
+    if (typeof status === 'string' && (status === 'sent' || status === 'failed' || status === 'skipped')) {
       query.status = status;
     }
 
