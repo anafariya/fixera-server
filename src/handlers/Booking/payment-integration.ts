@@ -33,6 +33,9 @@ import {
   sendRescheduleRequestedEmail,
   sendRescheduleResolvedEmail,
 } from '../../utils/emailService';
+import { MAX_RESCHEDULES_PER_BOOKING } from '../../constants/booking';
+import { findTeamConflicts } from '../../utils/scheduleConflict';
+import WarrantyClaim from '../../models/warrantyClaim';
 
 const BOOKING_STATUS_VALUES: BookingStatus[] = [
   'rfq',
@@ -1090,6 +1093,17 @@ export const requestBookingReschedule = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: { code: 'INVALID_STATUS', message: 'Rescheduling can only be requested for booked work' } });
     }
 
+    const completedRescheduleCount = (booking.rescheduleHistory || []).length;
+    if (completedRescheduleCount >= MAX_RESCHEDULES_PER_BOOKING) {
+      return res.status(409).json({
+        success: false,
+        error: {
+          code: 'MAX_RESCHEDULES_REACHED',
+          message: `This booking has reached the maximum of ${MAX_RESCHEDULES_PER_BOOKING} reschedules`,
+        },
+      });
+    }
+
     const proposedSchedule = await buildScheduleUpdatePayload({
       booking,
       scheduledStartDate,
@@ -1098,6 +1112,33 @@ export const requestBookingReschedule = async (req: Request, res: Response) => {
 
     if (!proposedSchedule.success) {
       return res.status(proposedSchedule.status).json({ success: false, error: proposedSchedule.error });
+    }
+
+    const proposedTeamMembers =
+      Array.isArray(proposedSchedule.data.assignedTeamMembers) && proposedSchedule.data.assignedTeamMembers.length > 0
+        ? proposedSchedule.data.assignedTeamMembers
+        : booking.assignedTeamMembers || [];
+    const proposedStart = proposedSchedule.data.scheduledStartDate;
+    const proposedEnd =
+      proposedSchedule.data.scheduledBufferEndDate || proposedSchedule.data.scheduledExecutionEndDate;
+
+    if (proposedStart && proposedEnd && proposedTeamMembers.length > 0) {
+      const conflicts = await findTeamConflicts(
+        String(booking._id),
+        proposedTeamMembers as any,
+        proposedStart,
+        proposedEnd
+      );
+      if (conflicts.length > 0) {
+        return res.status(409).json({
+          success: false,
+          error: {
+            code: 'TEAM_CONFLICT',
+            message: 'The proposed schedule conflicts with another booking on the same team member(s)',
+            conflicts,
+          },
+        });
+      }
     }
 
     booking.status = 'rescheduling_requested';
@@ -1218,7 +1259,42 @@ export const respondToBookingReschedule = async (req: Request, res: Response) =>
       );
     }
 
+    booking.rescheduleHistory = booking.rescheduleHistory || [];
+    booking.rescheduleHistory.push({
+      requestedBy: booking.rescheduleRequest.requestedBy,
+      requestedAt: booking.rescheduleRequest.requestedAt,
+      reason: booking.rescheduleRequest.reason,
+      note: booking.rescheduleRequest.note,
+      previousSchedule: booking.rescheduleRequest.previousSchedule,
+      proposedSchedule: booking.rescheduleRequest.proposedSchedule,
+      status: action === 'accept' ? 'accepted' : 'declined',
+      respondedAt: booking.rescheduleRequest.respondedAt,
+      respondedBy: booking.rescheduleRequest.respondedBy,
+      responseNote: booking.rescheduleRequest.responseNote,
+    } as any);
+    booking.rescheduleRequest = undefined;
+
     await booking.save();
+
+    if (action === 'accept') {
+      try {
+        await WarrantyClaim.updateMany(
+          {
+            booking: booking._id,
+            'resolution.resolvedAt': { $exists: false },
+          },
+          {
+            $unset: {
+              'sla.professionalResponseDueAt': '',
+              'sla.customerConfirmationDueAt': '',
+              'proposal.resolveByDate': '',
+            },
+          }
+        );
+      } catch (slaErr: any) {
+        console.error('Failed to reset warranty SLA on reschedule:', slaErr?.message || slaErr);
+      }
+    }
 
     try {
       const professional = booking.professional as any;

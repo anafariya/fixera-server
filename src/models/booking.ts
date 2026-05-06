@@ -276,6 +276,18 @@ export interface IBooking extends Document {
     respondedBy?: Types.ObjectId;
     responseNote?: string;
   };
+  rescheduleHistory?: {
+    requestedBy: Types.ObjectId;
+    requestedAt: Date;
+    reason: string;
+    note?: string;
+    previousSchedule?: IBookingScheduleSnapshot;
+    proposedSchedule: IBookingScheduleSnapshot;
+    status: 'accepted' | 'declined' | 'auto_cancelled';
+    respondedAt?: Date;
+    respondedBy?: Types.ObjectId;
+    responseNote?: string;
+  }[];
   warrantyCoverage?: {
     duration: { value: number; unit: 'months' | 'years' };
     startsAt?: Date;
@@ -354,6 +366,8 @@ export interface IBooking extends Document {
     resolution?: string;
     resolvedBy?: Types.ObjectId; // Admin who resolved
     adminAdjustedAmount?: number;
+    slaDeadline?: Date;
+    slaBreachNotifiedAt?: Date;
   };
 
   // Post-booking questions (filled after booking is confirmed)
@@ -808,6 +822,36 @@ const BookingSchema = new Schema({
     },
     responseNote: { type: String, trim: true, maxlength: 2000 },
   },
+  rescheduleHistory: [{
+    requestedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    requestedAt: { type: Date, required: true },
+    reason: { type: String, trim: true, maxlength: 500 },
+    note: { type: String, trim: true, maxlength: 2000 },
+    previousSchedule: {
+      scheduledStartDate: { type: Date },
+      scheduledExecutionEndDate: { type: Date },
+      scheduledBufferStartDate: { type: Date },
+      scheduledBufferEndDate: { type: Date },
+      scheduledBufferUnit: { type: String, enum: ['hours', 'days'] },
+      scheduledStartTime: { type: String, match: TIME_24H_REGEX },
+      scheduledEndTime: { type: String, match: TIME_24H_REGEX },
+      assignedTeamMembers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+    },
+    proposedSchedule: {
+      scheduledStartDate: { type: Date },
+      scheduledExecutionEndDate: { type: Date },
+      scheduledBufferStartDate: { type: Date },
+      scheduledBufferEndDate: { type: Date },
+      scheduledBufferUnit: { type: String, enum: ['hours', 'days'] },
+      scheduledStartTime: { type: String, match: TIME_24H_REGEX },
+      scheduledEndTime: { type: String, match: TIME_24H_REGEX },
+      assignedTeamMembers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+    },
+    status: { type: String, enum: ['accepted', 'declined', 'auto_cancelled'], required: true },
+    respondedAt: { type: Date },
+    respondedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    responseNote: { type: String, trim: true, maxlength: 2000 },
+  }],
   warrantyCoverage: {
     duration: {
       value: { type: Number, min: 0 },
@@ -989,7 +1033,9 @@ const BookingSchema = new Schema({
       type: Schema.Types.ObjectId,
       ref: 'User'
     },
-    adminAdjustedAmount: { type: Number }
+    adminAdjustedAmount: { type: Number },
+    slaDeadline: { type: Date },
+    slaBreachNotifiedAt: { type: Date },
   },
 
   // Post-booking data
