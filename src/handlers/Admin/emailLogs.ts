@@ -50,6 +50,9 @@ export const listEmailLogs = async (req: Request, res: Response) => {
 
     const fromDate = parseDate(from);
     const untilDate = parseDate(until);
+    if (untilDate && untilDate.getUTCHours() === 0 && untilDate.getUTCMinutes() === 0 && untilDate.getUTCSeconds() === 0 && untilDate.getUTCMilliseconds() === 0) {
+      untilDate.setUTCHours(23, 59, 59, 999);
+    }
     if (fromDate || untilDate) {
       query.createdAt = {};
       if (fromDate) query.createdAt.$gte = fromDate;

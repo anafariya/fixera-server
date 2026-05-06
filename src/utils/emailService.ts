@@ -1284,7 +1284,7 @@ const buildEmailButton = (href: string, label: string, color = '#667eea') => `
   </div>
 `;
 
-const EMAIL_DEV_NO_SEND = process.env.EMAIL_DEV_NO_SEND === 'true' || !process.env.BREVO_API_KEY;
+const EMAIL_DEV_NO_SEND = process.env.EMAIL_DEV_NO_SEND === 'true';
 
 const sendEmail = async (
   to: string,
@@ -1304,6 +1304,21 @@ const sendEmail = async (
       relatedUser: meta.relatedUser,
     });
     return true;
+  }
+
+  if (!process.env.BREVO_API_KEY) {
+    const errorMessage = 'BREVO_API_KEY is not set';
+    console.error(`Cannot send email "${subject}" to ${to}: ${errorMessage}`);
+    void logEmail({
+      to,
+      subject,
+      template,
+      status: 'failed',
+      errorMessage,
+      relatedBooking: meta.relatedBooking,
+      relatedUser: meta.relatedUser,
+    });
+    return false;
   }
 
   try {
@@ -1894,7 +1909,8 @@ export const sendProfessionalCompletedEmail = async (
   custName: string,
   profName: string,
   extraCostTotal: number,
-  bookingId: string
+  bookingId: string,
+  currency: string = 'EUR'
 ): Promise<boolean> => {
   const hasExtras = extraCostTotal > 0;
   const content = `
@@ -1907,7 +1923,7 @@ export const sendProfessionalCompletedEmail = async (
         </p>
         ${hasExtras ? `
         <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
-          <p style="color: #333; margin: 0;"><strong>Extra costs declared:</strong> ${formatCurrency(extraCostTotal)}</p>
+          <p style="color: #333; margin: 0;"><strong>Extra costs declared:</strong> ${formatCurrency(extraCostTotal, currency)}</p>
           <p style="color: #666; margin: 8px 0 0 0; font-size: 14px;">You can review the breakdown and accept or dispute it on your booking page.</p>
         </div>` : ''}
         <p style="color: #666; line-height: 1.6;">
@@ -2015,7 +2031,8 @@ export const sendDisputeResolvedEmail = async (
   profName: string,
   resolution: string,
   adjustedAmount: number | undefined,
-  bookingId: string
+  bookingId: string,
+  currency: string = 'EUR'
 ): Promise<boolean> => {
   const link = buildBookingLink(bookingId);
   const safeResolution = escapeHtml(resolution || 'Closed by admin');
@@ -2029,7 +2046,7 @@ export const sendDisputeResolvedEmail = async (
         </p>
         <div style="background: #e8f5e8; border-left: 4px solid #16a34a; padding: 15px; margin: 20px 0;">
           <p style="color: #333; margin: 0 0 8px 0;"><strong>Resolution:</strong> ${safeResolution}</p>
-          ${typeof adjustedAmount === 'number' && Number.isFinite(adjustedAmount) ? `<p style="color: #333; margin: 0;"><strong>Adjusted amount:</strong> ${formatCurrency(adjustedAmount)}</p>` : ''}
+          ${typeof adjustedAmount === 'number' && Number.isFinite(adjustedAmount) ? `<p style="color: #333; margin: 0;"><strong>Adjusted amount:</strong> ${formatCurrency(adjustedAmount, currency)}</p>` : ''}
         </div>
         ${buildEmailButton(link, 'View Booking', '#16a34a')}
         ${getEmailFooter()}

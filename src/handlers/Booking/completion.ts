@@ -339,7 +339,8 @@ export const professionalCompleteBooking = async (req: Request, res: Response) =
           customerUser.name || 'Customer',
           professionalUser?.name || 'Professional',
           extraCostTotal,
-          String(updatedBooking._id)
+          String(updatedBooking._id),
+          (updatedBooking as any).payment?.currency || 'EUR'
         );
       }
     } catch (emailError: any) {

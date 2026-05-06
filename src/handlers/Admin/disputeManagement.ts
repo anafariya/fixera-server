@@ -366,7 +366,8 @@ export const resolveDispute = async (req: Request, res: Response) => {
           professionalUser.name || 'Professional',
           resolution,
           typeof finalExtraCostAmount === 'number' ? finalExtraCostAmount : undefined,
-          String(resolvedBooking._id)
+          String(resolvedBooking._id),
+          (resolvedBooking as any).payment?.currency || 'EUR'
         );
       }
     } catch (emailError: any) {

@@ -30,6 +30,7 @@ emailLogSchema.index({ to: 1, createdAt: -1 });
 emailLogSchema.index({ template: 1, createdAt: -1 });
 emailLogSchema.index({ relatedBooking: 1, createdAt: -1 });
 emailLogSchema.index({ status: 1, createdAt: -1 });
+emailLogSchema.index({ createdAt: -1 });
 
 const EmailLog = mongoose.model<IEmailLog>('EmailLog', emailLogSchema);
 
