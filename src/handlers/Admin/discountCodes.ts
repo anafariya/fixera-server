@@ -2,6 +2,27 @@ import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import DiscountCode from "../../models/discountCode";
 import DiscountCodeUsage from "../../models/discountCodeUsage";
+import connecToDatabase from "../../config/db";
+
+const buildErrorPayload = (msg: string, error: any) => {
+  const payload: Record<string, unknown> = { success: false, msg };
+  if (error) {
+    payload.error = {
+      name: error?.name,
+      message: error?.message,
+      code: error?.code,
+    };
+    if (error?.errors && typeof error.errors === 'object') {
+      payload.error = {
+        ...(payload.error as Record<string, unknown>),
+        validation: Object.fromEntries(
+          Object.entries(error.errors).map(([k, v]: [string, any]) => [k, v?.message || String(v)])
+        ),
+      };
+    }
+  }
+  return payload;
+};
 
 const parseDate = (value: any): Date | null => {
   if (!value) return null;
@@ -75,6 +96,7 @@ const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\
 
 export const listDiscountCodes = async (req: Request, res: Response, _next: NextFunction) => {
   try {
+    await connecToDatabase();
     const { status, search, page = '1', limit = '50' } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
@@ -112,12 +134,13 @@ export const listDiscountCodes = async (req: Request, res: Response, _next: Next
     });
   } catch (error: any) {
     console.error('List discount codes error:', error);
-    return res.status(500).json({ success: false, msg: 'Failed to list discount codes' });
+    return res.status(500).json(buildErrorPayload('Failed to list discount codes', error));
   }
 };
 
 export const getDiscountCode = async (req: Request, res: Response, _next: NextFunction) => {
   try {
+    await connecToDatabase();
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, msg: 'Invalid id' });
@@ -129,14 +152,19 @@ export const getDiscountCode = async (req: Request, res: Response, _next: NextFu
     return res.status(200).json({ success: true, data: { code, usageCount } });
   } catch (error: any) {
     console.error('Get discount code error:', error);
-    return res.status(500).json({ success: false, msg: 'Failed to load discount code' });
+    return res.status(500).json(buildErrorPayload('Failed to load discount code', error));
   }
 };
 
 export const createDiscountCode = async (req: Request, res: Response, _next: NextFunction) => {
   try {
+    await connecToDatabase();
     const adminId = (req as any).admin?._id;
     if (!adminId) return res.status(401).json({ success: false, msg: 'Authentication required' });
+
+    if (!req.body || typeof req.body !== 'object') {
+      return res.status(400).json({ success: false, msg: 'Request body is required' });
+    }
 
     const result = validatePayload(req.body);
     if (!result.ok) return res.status(400).json({ success: false, msg: result.error });
@@ -148,12 +176,19 @@ export const createDiscountCode = async (req: Request, res: Response, _next: Nex
     return res.status(201).json({ success: true, data: { code: created } });
   } catch (error: any) {
     console.error('Create discount code error:', error);
-    return res.status(500).json({ success: false, msg: 'Failed to create discount code' });
+    if (error?.code === 11000) {
+      return res.status(409).json({ success: false, msg: 'A code with this value already exists' });
+    }
+    if (error?.name === 'ValidationError') {
+      return res.status(400).json(buildErrorPayload('Discount code validation failed', error));
+    }
+    return res.status(500).json(buildErrorPayload('Failed to create discount code', error));
   }
 };
 
 export const updateDiscountCode = async (req: Request, res: Response, _next: NextFunction) => {
   try {
+    await connecToDatabase();
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, msg: 'Invalid id' });
@@ -171,12 +206,19 @@ export const updateDiscountCode = async (req: Request, res: Response, _next: Nex
     return res.status(200).json({ success: true, data: { code: updated } });
   } catch (error: any) {
     console.error('Update discount code error:', error);
-    return res.status(500).json({ success: false, msg: 'Failed to update discount code' });
+    if (error?.code === 11000) {
+      return res.status(409).json({ success: false, msg: 'Another code already uses this value' });
+    }
+    if (error?.name === 'ValidationError') {
+      return res.status(400).json(buildErrorPayload('Discount code validation failed', error));
+    }
+    return res.status(500).json(buildErrorPayload('Failed to update discount code', error));
   }
 };
 
 export const deleteDiscountCode = async (req: Request, res: Response, _next: NextFunction) => {
   try {
+    await connecToDatabase();
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, msg: 'Invalid id' });
@@ -186,6 +228,6 @@ export const deleteDiscountCode = async (req: Request, res: Response, _next: Nex
     return res.status(200).json({ success: true, data: { code: updated } });
   } catch (error: any) {
     console.error('Delete discount code error:', error);
-    return res.status(500).json({ success: false, msg: 'Failed to delete discount code' });
+    return res.status(500).json(buildErrorPayload('Failed to delete discount code', error));
   }
 };
