@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import DiscountCode from "../../models/discountCode";
 import DiscountCodeUsage from "../../models/discountCodeUsage";
-import connecToDatabase from "../../config/db";
+import connectToDatabase from "../../config/db";
 
 const buildErrorPayload = (msg: string, error: any) => {
   const payload: Record<string, unknown> = { success: false, msg };
@@ -96,7 +96,7 @@ const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\
 
 export const listDiscountCodes = async (req: Request, res: Response, _next: NextFunction) => {
   try {
-    await connecToDatabase();
+    await connectToDatabase();
     const { status, search, page = '1', limit = '50' } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
@@ -140,7 +140,7 @@ export const listDiscountCodes = async (req: Request, res: Response, _next: Next
 
 export const getDiscountCode = async (req: Request, res: Response, _next: NextFunction) => {
   try {
-    await connecToDatabase();
+    await connectToDatabase();
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, msg: 'Invalid id' });
@@ -158,7 +158,7 @@ export const getDiscountCode = async (req: Request, res: Response, _next: NextFu
 
 export const createDiscountCode = async (req: Request, res: Response, _next: NextFunction) => {
   try {
-    await connecToDatabase();
+    await connectToDatabase();
     const adminId = (req as any).admin?._id;
     if (!adminId) return res.status(401).json({ success: false, msg: 'Authentication required' });
 
@@ -188,7 +188,7 @@ export const createDiscountCode = async (req: Request, res: Response, _next: Nex
 
 export const updateDiscountCode = async (req: Request, res: Response, _next: NextFunction) => {
   try {
-    await connecToDatabase();
+    await connectToDatabase();
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, msg: 'Invalid id' });
@@ -218,7 +218,7 @@ export const updateDiscountCode = async (req: Request, res: Response, _next: Nex
 
 export const deleteDiscountCode = async (req: Request, res: Response, _next: NextFunction) => {
   try {
-    await connecToDatabase();
+    await connectToDatabase();
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, msg: 'Invalid id' });
