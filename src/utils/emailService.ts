@@ -1284,6 +1284,35 @@ const buildEmailButton = (href: string, label: string, color = '#667eea') => `
   </div>
 `;
 
+const EMAIL_DEV_LOG = process.env.EMAIL_DEV_LOG !== 'false';
+const EMAIL_DEV_NO_SEND = process.env.EMAIL_DEV_NO_SEND === 'true' || !process.env.BREVO_API_KEY;
+
+const printDevEmail = (
+  to: string,
+  subject: string,
+  htmlContent: string,
+  template: string,
+  meta: SendEmailMeta,
+  outcome: 'WOULD-SEND' | 'SENT' | 'FAILED',
+  errorMessage?: string
+) => {
+  if (!EMAIL_DEV_LOG) return;
+  const banner = '='.repeat(80);
+  console.log(`\n${banner}`);
+  console.log(`[EMAIL ${outcome}] template=${template}`);
+  console.log(`  to:         ${to}`);
+  console.log(`  subject:    ${subject}`);
+  console.log(`  from:       ${process.env.FROM_EMAIL || 'anafariya@gmail.com'}`);
+  if (meta.relatedBooking) console.log(`  booking:    ${meta.relatedBooking}`);
+  if (meta.relatedUser) console.log(`  user:       ${meta.relatedUser}`);
+  if (errorMessage) console.log(`  error:      ${errorMessage}`);
+  console.log(`  htmlBytes:  ${htmlContent.length}`);
+  console.log(`--- HTML BODY START ---`);
+  console.log(htmlContent);
+  console.log(`--- HTML BODY END ---`);
+  console.log(banner);
+};
+
 const sendEmail = async (
   to: string,
   subject: string,
@@ -1291,6 +1320,20 @@ const sendEmail = async (
   meta: SendEmailMeta = {}
 ): Promise<boolean> => {
   const template = meta.template || 'unknown';
+
+  if (EMAIL_DEV_NO_SEND) {
+    printDevEmail(to, subject, htmlContent, template, meta, 'WOULD-SEND');
+    void logEmail({
+      to,
+      subject,
+      template,
+      status: 'sent',
+      relatedBooking: meta.relatedBooking,
+      relatedUser: meta.relatedUser,
+    });
+    return true;
+  }
+
   try {
     const emailAPI = createEmailAPI();
     const sendSmtpEmail = new SendSmtpEmail();
@@ -1302,6 +1345,7 @@ const sendEmail = async (
       email: process.env.FROM_EMAIL || 'anafariya@gmail.com',
     };
     await emailAPI.sendTransacEmail(sendSmtpEmail);
+    printDevEmail(to, subject, htmlContent, template, meta, 'SENT');
     void logEmail({
       to,
       subject,
@@ -1313,6 +1357,7 @@ const sendEmail = async (
     return true;
   } catch (error: any) {
     console.error(`Failed to send email "${subject}" to ${to}:`, error);
+    printDevEmail(to, subject, htmlContent, template, meta, 'FAILED', error?.message || String(error));
     void logEmail({
       to,
       subject,
