@@ -1285,6 +1285,13 @@ const buildEmailButton = (href: string, label: string, color = '#667eea') => `
 `;
 
 const EMAIL_DEV_NO_SEND = process.env.EMAIL_DEV_NO_SEND === 'true';
+const IS_DEV = process.env.NODE_ENV !== 'production';
+
+const logDevEmail = (outcome: string, to: string, subject: string, template: string, htmlContent: string, errorMessage?: string) => {
+  if (!IS_DEV) return;
+  const banner = '='.repeat(80);
+  console.log(`\n${banner}\n[EMAIL ${outcome}] template=${template}\n  to:      ${to}\n  subject: ${subject}${errorMessage ? `\n  error:   ${errorMessage}` : ''}\n--- BODY ---\n${htmlContent}\n--- END ---\n${banner}`);
+};
 
 const sendEmail = async (
   to: string,
@@ -1295,6 +1302,7 @@ const sendEmail = async (
   const template = meta.template || 'unknown';
 
   if (EMAIL_DEV_NO_SEND) {
+    logDevEmail('SKIPPED', to, subject, template, htmlContent);
     void logEmail({
       to,
       subject,
@@ -1309,6 +1317,7 @@ const sendEmail = async (
   if (!process.env.BREVO_API_KEY) {
     const errorMessage = 'BREVO_API_KEY is not set';
     console.error(`Cannot send email "${subject}" to ${to}: ${errorMessage}`);
+    logDevEmail('FAILED', to, subject, template, htmlContent, errorMessage);
     void logEmail({
       to,
       subject,
@@ -1332,6 +1341,7 @@ const sendEmail = async (
       email: process.env.FROM_EMAIL || 'anafariya@gmail.com',
     };
     await emailAPI.sendTransacEmail(sendSmtpEmail);
+    logDevEmail('SENT', to, subject, template, htmlContent);
     void logEmail({
       to,
       subject,
@@ -1343,6 +1353,7 @@ const sendEmail = async (
     return true;
   } catch (error: any) {
     console.error(`Failed to send email "${subject}" to ${to}:`, error);
+    logDevEmail('FAILED', to, subject, template, htmlContent, error?.message || String(error));
     void logEmail({
       to,
       subject,
@@ -1658,15 +1669,16 @@ export const sendDirectQuotationEmail = async (
 
 const formatCurrency = (amount: number, currency = 'EUR'): string => {
   const safe = Number.isFinite(amount) ? amount : 0;
-  if (currency === 'EUR') return `&euro;${safe.toFixed(2)}`;
-  return `${escapeHtml(currency)} ${safe.toFixed(2)}`;
+  const code = String(currency).trim().toUpperCase();
+  if (code === 'EUR') return `&euro;${safe.toFixed(2)}`;
+  return `${escapeHtml(code)} ${safe.toFixed(2)}`;
 };
 
-const formatDateOnly = (value: Date | string | null | undefined): string => {
+const formatDateTime = (value: Date | string | null | undefined): string => {
   if (!value) return 'TBD';
   const d = value instanceof Date ? value : new Date(value);
   if (isNaN(d.getTime())) return 'TBD';
-  return d.toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: '2-digit' });
+  return d.toLocaleString('en-GB', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 };
 
 // Payment confirmed → both parties
@@ -1742,7 +1754,7 @@ export const sendBookingScheduledEmail = async (
           <strong>${escapeHtml(profName)}</strong> has scheduled your booking.
         </p>
         <div style="background: #e8f4fd; border-left: 4px solid #3b82f6; padding: 15px; margin: 20px 0;">
-          <p style="color: #333; margin: 0;"><strong>Scheduled Start:</strong> ${escapeHtml(formatDateOnly(scheduledStart))}</p>
+          <p style="color: #333; margin: 0;"><strong>Scheduled Start:</strong> ${escapeHtml(formatDateTime(scheduledStart))}</p>
         </div>
         ${buildEmailButton(buildBookingLink(bookingId), 'View Booking')}
         ${getEmailFooter()}
@@ -1774,8 +1786,8 @@ export const sendRescheduleRequestedEmail = async (
           <strong>${escapeHtml(profName)}</strong> has requested to reschedule your booking.
         </p>
         <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
-          <p style="color: #333; margin: 0 0 8px 0;"><strong>Original Start:</strong> ${escapeHtml(formatDateOnly(oldDate))}</p>
-          <p style="color: #333; margin: 0 0 8px 0;"><strong>Proposed Start:</strong> ${escapeHtml(formatDateOnly(newDate))}</p>
+          <p style="color: #333; margin: 0 0 8px 0;"><strong>Original Start:</strong> ${escapeHtml(formatDateTime(oldDate))}</p>
+          <p style="color: #333; margin: 0 0 8px 0;"><strong>Proposed Start:</strong> ${escapeHtml(formatDateTime(newDate))}</p>
           <p style="color: #333; margin: 0;"><strong>Reason:</strong> ${escapeHtml(reason)}</p>
         </div>
         <p style="color: #666; line-height: 1.6;">
