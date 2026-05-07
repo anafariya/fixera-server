@@ -266,6 +266,12 @@ export const adminStartSupportChat = async (req: Request, res: Response) => {
     if (!targetUser) {
       return res.status(404).json({ success: false, msg: "Target user not found" });
     }
+    if (targetUser.role !== "customer" && targetUser.role !== "professional") {
+      return res.status(400).json({
+        success: false,
+        msg: "Support chats are only available for customers or professionals",
+      });
+    }
 
     const adminObjectId = new mongoose.Types.ObjectId(adminId);
     const targetObjectId = new mongoose.Types.ObjectId(targetUserId);

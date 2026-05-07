@@ -696,7 +696,7 @@ const BookingSchema = new Schema({
     stripeTransferId: { type: String },
     stripeDestinationPayment: { type: String },
     transferCurrency: { type: String },
-    transferAmount: { type: Number },
+    transferAmount: { type: Number, min: [0, 'transferAmount cannot be negative'] },
 
     // Financial breakdown
     stripeFeeAmount: { type: Number },
@@ -852,8 +852,19 @@ const BookingSchema = new Schema({
       assignedTeamMembers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     },
     status: { type: String, enum: ['accepted', 'declined', 'auto_cancelled'], required: true },
-    respondedAt: { type: Date },
-    respondedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    respondedAt: {
+      type: Date,
+      required: function (this: any) {
+        return this.status === 'accepted' || this.status === 'declined';
+      },
+    },
+    respondedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: function (this: any) {
+        return this.status === 'accepted' || this.status === 'declined';
+      },
+    },
     responseNote: { type: String, trim: true, maxlength: 2000 },
   }],
   warrantyCoverage: {
