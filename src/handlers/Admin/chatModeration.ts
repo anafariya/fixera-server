@@ -163,24 +163,28 @@ export const resolveChatReport = async (req: Request, res: Response) => {
       }
       report.status = "reviewed";
     } else if (action === "ban") {
-      if (reportedSenderId && mongoose.Types.ObjectId.isValid(reportedSenderId)) {
-        const result = await User.updateOne(
-          { _id: reportedSenderId, role: { $in: ["customer", "professional"] } },
-          {
-            $set: {
-              accountStatus: "suspended",
-              suspensionReason: typeof notes === "string" && notes.trim()
-                ? `Banned by admin: ${notes.trim()}`
-                : "Banned by admin (chat moderation)",
-            },
-          }
-        );
-        if (result.matchedCount === 0) {
-          return res.status(409).json({
-            success: false,
-            msg: "Cannot ban this user (admin/system accounts cannot be suspended via chat moderation)",
-          });
+      if (!reportedSenderId || !mongoose.Types.ObjectId.isValid(reportedSenderId)) {
+        return res.status(400).json({
+          success: false,
+          msg: "Cannot ban: reported message has no valid sender",
+        });
+      }
+      const result = await User.updateOne(
+        { _id: reportedSenderId, role: { $in: ["customer", "professional"] } },
+        {
+          $set: {
+            accountStatus: "suspended",
+            suspensionReason: typeof notes === "string" && notes.trim()
+              ? `Banned by admin: ${notes.trim()}`
+              : "Banned by admin (chat moderation)",
+          },
         }
+      );
+      if (result.matchedCount === 0) {
+        return res.status(409).json({
+          success: false,
+          msg: "Cannot ban this user (admin/system accounts cannot be suspended via chat moderation)",
+        });
       }
       report.status = "reviewed";
     } else {

@@ -12,7 +12,7 @@ import {
   sendRefundDeniedEmail,
 } from "../../utils/emailService";
 
-const VALID_STATUSES = ["pending", "approved", "denied"] as const;
+const VALID_STATUSES = ["pending", "processing", "approved", "denied"] as const;
 
 const parsePagination = (query: any) => {
   const page = Math.max(1, Math.floor(Number(query.page) || 1));
@@ -136,8 +136,8 @@ export const approveCancellationRequest = async (req: Request, res: Response) =>
         refundedAt = new Date();
       } catch (error: any) {
         await CancellationRequest.updateOne(
-          { _id: cancellation._id, status: "pending" },
-          { $unset: { resolvedBy: "", resolvedAt: "" } }
+          { _id: cancellation._id, status: "processing" },
+          { $set: { status: "pending" }, $unset: { resolvedBy: "", resolvedAt: "" } }
         );
         if (error instanceof RefundError) {
           return res.status(error.httpStatus).json({

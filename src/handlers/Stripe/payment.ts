@@ -915,7 +915,7 @@ export const executeRefund = async (
 
   const totalWithVat = booking.payment?.totalWithVat ?? 0;
   let previousRefundTotal = 0;
-  if (['completed', 'authorized'].includes(booking.payment.status)) {
+  if (['completed', 'authorized', 'partially_refunded'].includes(booking.payment.status)) {
     const existingPayment = await Payment.findOne({ booking: booking._id });
     if (existingPayment) {
       previousRefundTotal = (existingPayment.refunds || []).reduce(
@@ -946,9 +946,7 @@ export const executeRefund = async (
     const refund = await stripe.refunds.create(
       {
         payment_intent: booking.payment.stripePaymentIntentId,
-        amount: normalizedAmount
-          ? convertToStripeAmount(normalizedAmount, booking.payment.currency || 'EUR')
-          : undefined,
+        amount: convertToStripeAmount(refundAmount, booking.payment.currency || 'EUR'),
       },
       {
         idempotencyKey: generateIdempotencyKey({
@@ -995,13 +993,11 @@ export const executeRefund = async (
     return { refundId: refund.id, amount: refundAmount, status: refund.status || undefined, refundSource: 'platform' };
   }
 
-  if (booking.payment.status === 'completed') {
+  if (booking.payment.status === 'completed' || booking.payment.status === 'partially_refunded') {
     const refund = await stripe.refunds.create(
       {
         payment_intent: booking.payment.stripePaymentIntentId,
-        amount: normalizedAmount
-          ? convertToStripeAmount(normalizedAmount, booking.payment.currency || 'EUR')
-          : undefined,
+        amount: convertToStripeAmount(refundAmount, booking.payment.currency || 'EUR'),
       },
       {
         idempotencyKey: generateIdempotencyKey({

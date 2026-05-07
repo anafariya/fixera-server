@@ -60,7 +60,7 @@ const CancellationRequestSchema = new Schema<ICancellationRequest>(
 CancellationRequestSchema.index({ booking: 1, status: 1 });
 CancellationRequestSchema.index(
   { booking: 1 },
-  { unique: true, partialFilterExpression: { status: "pending" } }
+  { unique: true, partialFilterExpression: { status: { $in: ["pending", "processing"] } } }
 );
 
 const CancellationRequest = model<ICancellationRequest>(

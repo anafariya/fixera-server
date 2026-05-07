@@ -827,7 +827,7 @@ const BookingSchema = new Schema({
   rescheduleHistory: [{
     requestedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     requestedAt: { type: Date, required: true },
-    reason: { type: String, trim: true, maxlength: 500 },
+    reason: { type: String, required: true, trim: true, maxlength: 500 },
     note: { type: String, trim: true, maxlength: 2000 },
     previousSchedule: {
       scheduledStartDate: { type: Date },

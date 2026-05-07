@@ -1343,8 +1343,8 @@ export const getMyDisputes = async (req: Request, res: Response, next: NextFunct
       $or: [{ customer: objectUserId }, { professional: objectUserId }],
     })
       .select('bookingNumber status dispute customer professional project payment scheduledStartDate')
-      .populate('customer', 'name email')
-      .populate('professional', 'name email')
+      .populate('customer', 'name')
+      .populate('professional', 'name')
       .populate('project', 'title')
       .sort({ 'dispute.raisedAt': -1 })
       .limit(100)
