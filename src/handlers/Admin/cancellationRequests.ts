@@ -89,21 +89,35 @@ export const getCancellationRequest = async (req: Request, res: Response) => {
 export const approveCancellationRequest = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const adminId = (req as any).user?._id?.toString();
+    const adminIdRaw = (req as any).admin?._id ?? (req as any).user?._id;
+    const adminId = adminIdRaw?.toString();
+    if (!adminId || !mongoose.Types.ObjectId.isValid(adminId)) {
+      return res.status(401).json({ success: false, msg: "Unauthorized" });
+    }
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, msg: "Invalid id" });
     }
 
-    const cancellation = await CancellationRequest.findById(id);
+    const adminObjectId = new mongoose.Types.ObjectId(adminId);
+    const cancellation = await CancellationRequest.findOneAndUpdate(
+      { _id: id, status: "pending" },
+      { $set: { resolvedBy: adminObjectId, resolvedAt: new Date() } },
+      { new: true }
+    );
     if (!cancellation) {
-      return res.status(404).json({ success: false, msg: "Cancellation request not found" });
-    }
-    if (cancellation.status !== "pending") {
-      return res.status(409).json({ success: false, msg: `Request is already ${cancellation.status}` });
+      const existing = await CancellationRequest.findById(id).lean();
+      if (!existing) {
+        return res.status(404).json({ success: false, msg: "Cancellation request not found" });
+      }
+      return res.status(409).json({ success: false, msg: `Request is already ${existing.status}` });
     }
 
     const booking = await Booking.findById(cancellation.booking);
     if (!booking) {
+      await CancellationRequest.updateOne(
+        { _id: cancellation._id, status: "pending" },
+        { $unset: { resolvedBy: "", resolvedAt: "" } }
+      );
       return res.status(404).json({ success: false, msg: "Linked booking not found" });
     }
 
@@ -121,6 +135,10 @@ export const approveCancellationRequest = async (req: Request, res: Response) =>
         refundAmount = result.amount;
         refundedAt = new Date();
       } catch (error: any) {
+        await CancellationRequest.updateOne(
+          { _id: cancellation._id, status: "pending" },
+          { $unset: { resolvedBy: "", resolvedAt: "" } }
+        );
         if (error instanceof RefundError) {
           return res.status(error.httpStatus).json({
             success: false,
@@ -213,8 +231,12 @@ export const approveCancellationRequest = async (req: Request, res: Response) =>
 export const denyCancellationRequest = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const adminId = (req as any).user?._id?.toString();
+    const adminIdRaw = (req as any).admin?._id ?? (req as any).user?._id;
+    const adminId = adminIdRaw?.toString();
     const { denyReason } = req.body || {};
+    if (!adminId || !mongoose.Types.ObjectId.isValid(adminId)) {
+      return res.status(401).json({ success: false, msg: "Unauthorized" });
+    }
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, msg: "Invalid id" });
     }
@@ -222,19 +244,26 @@ export const denyCancellationRequest = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, msg: "denyReason is required (max 500 chars)" });
     }
 
-    const cancellation = await CancellationRequest.findById(id).populate("requestedBy", "email name");
+    const adminObjectId = new mongoose.Types.ObjectId(adminId);
+    const cancellation = await CancellationRequest.findOneAndUpdate(
+      { _id: id, status: "pending" },
+      {
+        $set: {
+          status: "denied",
+          denyReason: denyReason.trim(),
+          resolvedAt: new Date(),
+          resolvedBy: adminObjectId,
+        },
+      },
+      { new: true }
+    ).populate("requestedBy", "email name");
     if (!cancellation) {
-      return res.status(404).json({ success: false, msg: "Cancellation request not found" });
+      const existing = await CancellationRequest.findById(id).lean();
+      if (!existing) {
+        return res.status(404).json({ success: false, msg: "Cancellation request not found" });
+      }
+      return res.status(409).json({ success: false, msg: `Request is already ${existing.status}` });
     }
-    if (cancellation.status !== "pending") {
-      return res.status(409).json({ success: false, msg: `Request is already ${cancellation.status}` });
-    }
-
-    cancellation.status = "denied";
-    cancellation.denyReason = denyReason.trim();
-    cancellation.resolvedAt = new Date();
-    cancellation.resolvedBy = new mongoose.Types.ObjectId(adminId);
-    await cancellation.save();
 
     try {
       const requester: any = cancellation.requestedBy;

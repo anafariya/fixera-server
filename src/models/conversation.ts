@@ -124,6 +124,21 @@ const ConversationSchema = new Schema<IConversation>(
   { timestamps: true }
 );
 
+ConversationSchema.pre("validate", function (next) {
+  if (
+    this.type === "support" &&
+    this.supportAdminId &&
+    this.supportTargetUserId &&
+    this.supportAdminId.toString() === this.supportTargetUserId.toString()
+  ) {
+    this.invalidate(
+      "supportTargetUserId",
+      "supportAdminId and supportTargetUserId must be different users"
+    );
+  }
+  next();
+});
+
 ConversationSchema.index({ customerId: 1, lastMessageAt: -1 });
 ConversationSchema.index({ professionalId: 1, lastMessageAt: -1 });
 ConversationSchema.index(

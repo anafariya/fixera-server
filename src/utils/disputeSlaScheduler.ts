@@ -39,12 +39,13 @@ export const runDisputeSlaCheck = async (): Promise<DisputeSlaCheckResult> => {
         hoursOverdue,
       });
 
-      await Booking.updateOne(
-        { _id: booking._id },
-        { $set: { "dispute.slaBreachNotifiedAt": new Date() } }
-      );
-
-      if (sent) stats.notified++;
+      if (sent) {
+        await Booking.updateOne(
+          { _id: booking._id },
+          { $set: { "dispute.slaBreachNotifiedAt": new Date() } }
+        );
+        stats.notified++;
+      }
     } catch (error: any) {
       console.error(`[disputeSla] Failed to notify for booking ${booking._id}:`, error?.message || error);
       stats.errors++;

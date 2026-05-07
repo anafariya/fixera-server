@@ -2183,27 +2183,40 @@ export const sendCancellationRequestRaisedEmail = async (params: {
   `;
 
   const meta = { template: 'cancellation_request_raised', relatedBooking: bookingId };
-  const promises: Promise<boolean>[] = [];
 
-  if (adminEmail) {
-    const adminContent = buildContent(
-      'A cancellation request needs review',
-      `<strong>${escapeHtml(requesterName)}</strong> (${escapeHtml(requesterRole)}) has requested cancellation of a booking. Please review and approve or deny.`
+  if (!adminEmail) {
+    console.error(
+      '[cancellation_request_raised] ADMIN_NOTIFICATIONS_EMAIL/FROM_EMAIL not configured — admin will not be notified'
     );
-    promises.push(sendEmail(adminEmail, 'Cancellation Request - Fixera Admin Review', adminContent, meta));
+    return false;
   }
 
+  const adminContent = buildContent(
+    'A cancellation request needs review',
+    `<strong>${escapeHtml(requesterName)}</strong> (${escapeHtml(requesterRole)}) has requested cancellation of a booking. Please review and approve or deny.`
+  );
+  const adminSent = await sendEmail(
+    adminEmail,
+    'Cancellation Request - Fixera Admin Review',
+    adminContent,
+    meta
+  );
+
+  let otherSent = true;
   if (otherPartyEmail) {
     const otherContent = buildContent(
       `Hello ${escapeHtml(otherPartyName || '')},`,
       `<strong>${escapeHtml(requesterName)}</strong> has requested cancellation of your shared booking. Our team is reviewing the request.`
     );
-    promises.push(sendEmail(otherPartyEmail, 'Cancellation Request Submitted - Fixera', otherContent, meta));
+    otherSent = await sendEmail(
+      otherPartyEmail,
+      'Cancellation Request Submitted - Fixera',
+      otherContent,
+      meta
+    );
   }
 
-  if (promises.length === 0) return false;
-  const results = await Promise.all(promises);
-  return results.every(Boolean);
+  return adminSent && otherSent;
 };
 
 // Refund denied → requester

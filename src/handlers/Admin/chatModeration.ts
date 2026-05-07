@@ -104,9 +104,13 @@ export const getChatReport = async (req: Request, res: Response) => {
 
 export const resolveChatReport = async (req: Request, res: Response) => {
   try {
-    const adminId = (req as any).user?._id?.toString();
+    const adminIdRaw = (req as any).admin?._id ?? (req as any).user?._id;
+    const adminId = adminIdRaw?.toString();
     const { id } = req.params;
     const { action, notes } = req.body || {};
+    if (!adminId || !mongoose.Types.ObjectId.isValid(adminId)) {
+      return res.status(401).json({ success: false, msg: "Unauthorized" });
+    }
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, msg: "Invalid id" });
     }
@@ -114,6 +118,7 @@ export const resolveChatReport = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, msg: "action must be warn, ban, or dismiss" });
     }
 
+    const adminObjectId = new mongoose.Types.ObjectId(adminId);
     const report = await ChatReport.findById(id).populate("messageId");
     if (!report) {
       return res.status(404).json({ success: false, msg: "Report not found" });
@@ -132,20 +137,20 @@ export const resolveChatReport = async (req: Request, res: Response) => {
       try {
         await ChatMessage.create({
           conversationId: report.conversationId,
-          senderId: new mongoose.Types.ObjectId(adminId),
+          senderId: adminObjectId,
           senderRole: "admin",
           text: `⚠️ Admin warning: this conversation is being reviewed for reported content.${notes ? ` Note: ${notes}` : ""}`,
           messageType: "text",
-          readBy: [{ userId: new mongoose.Types.ObjectId(adminId), readAt: new Date() }],
+          readBy: [{ userId: adminObjectId, readAt: new Date() }],
         });
       } catch (err: any) {
         console.error("Warn message create failed:", err?.message || err);
       }
       report.status = "reviewed";
     } else if (action === "ban") {
-      if (reportedSenderId) {
-        await User.updateOne(
-          { _id: reportedSenderId },
+      if (reportedSenderId && mongoose.Types.ObjectId.isValid(reportedSenderId)) {
+        const result = await User.updateOne(
+          { _id: reportedSenderId, role: { $in: ["customer", "professional"] } },
           {
             $set: {
               accountStatus: "suspended",
@@ -155,6 +160,12 @@ export const resolveChatReport = async (req: Request, res: Response) => {
             },
           }
         );
+        if (result.matchedCount === 0) {
+          return res.status(409).json({
+            success: false,
+            msg: "Cannot ban this user (admin/system accounts cannot be suspended via chat moderation)",
+          });
+        }
       }
       report.status = "reviewed";
     } else {
@@ -216,10 +227,17 @@ export const adminGetConversationMessages = async (req: Request, res: Response) 
 
 export const adminStartSupportChat = async (req: Request, res: Response) => {
   try {
-    const adminId = (req as any).user?._id?.toString();
+    const adminIdRaw = (req as any).admin?._id ?? (req as any).user?._id;
+    const adminId = adminIdRaw?.toString();
     const { targetUserId, initialMessage } = req.body || {};
+    if (!adminId || !mongoose.Types.ObjectId.isValid(adminId)) {
+      return res.status(401).json({ success: false, msg: "Unauthorized" });
+    }
     if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
       return res.status(400).json({ success: false, msg: "Invalid targetUserId" });
+    }
+    if (adminId === String(targetUserId)) {
+      return res.status(400).json({ success: false, msg: "Cannot start a support chat with yourself" });
     }
     if (typeof initialMessage !== "string" || !initialMessage.trim() || initialMessage.length > 2000) {
       return res.status(400).json({ success: false, msg: "initialMessage is required (max 2000 chars)" });
@@ -230,28 +248,38 @@ export const adminStartSupportChat = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, msg: "Target user not found" });
     }
 
-    const conversation = await Conversation.create({
+    const adminObjectId = new mongoose.Types.ObjectId(adminId);
+    const targetObjectId = new mongoose.Types.ObjectId(targetUserId);
+
+    let conversation = await Conversation.findOne({
       type: "support",
-      supportAdminId: new mongoose.Types.ObjectId(adminId),
-      supportTargetUserId: new mongoose.Types.ObjectId(targetUserId),
-      initiatedBy: new mongoose.Types.ObjectId(adminId),
-      status: "active",
-    } as any);
+      supportAdminId: adminObjectId,
+      supportTargetUserId: targetObjectId,
+    });
+    if (!conversation) {
+      conversation = await Conversation.create({
+        type: "support",
+        supportAdminId: adminObjectId,
+        supportTargetUserId: targetObjectId,
+        initiatedBy: adminObjectId,
+        status: "active",
+      } as any);
+    }
 
     const message = await ChatMessage.create({
       conversationId: conversation._id,
-      senderId: new mongoose.Types.ObjectId(adminId),
+      senderId: adminObjectId,
       senderRole: "admin",
       text: initialMessage.trim(),
       messageType: "text",
-      readBy: [{ userId: new mongoose.Types.ObjectId(adminId), readAt: new Date() }],
+      readBy: [{ userId: adminObjectId, readAt: new Date() }],
     });
 
     await Conversation.findByIdAndUpdate(conversation._id, {
       $set: {
         lastMessageAt: new Date(),
         lastMessagePreview: initialMessage.trim().slice(0, 200),
-        lastMessageSenderId: new mongoose.Types.ObjectId(adminId),
+        lastMessageSenderId: adminObjectId,
       },
       $inc: { customerUnreadCount: 1 },
     });

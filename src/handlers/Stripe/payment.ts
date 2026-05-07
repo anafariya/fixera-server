@@ -913,23 +913,30 @@ export const executeRefund = async (
   }
 
   const totalWithVat = booking.payment?.totalWithVat ?? 0;
-  const refundAmount = normalizedAmount ?? totalWithVat;
-
-  if (normalizedAmount && ['completed', 'authorized'].includes(booking.payment.status)) {
+  let previousRefundTotal = 0;
+  if (['completed', 'authorized'].includes(booking.payment.status)) {
     const existingPayment = await Payment.findOne({ booking: booking._id });
     if (existingPayment) {
-      const previousRefundTotal = (existingPayment.refunds || []).reduce(
+      previousRefundTotal = (existingPayment.refunds || []).reduce(
         (sum: number, r: any) => sum + (r.amount || 0),
         0
       );
-      if (previousRefundTotal + normalizedAmount > totalWithVat) {
-        throw new RefundError(
-          'REFUND_EXCEEDS_TOTAL',
-          `Refund of ${normalizedAmount} would exceed total payment. Already refunded: ${previousRefundTotal}, original: ${totalWithVat}`
-        );
-      }
     }
   }
+  const remainingRefundable = Math.max(0, totalWithVat - previousRefundTotal);
+  if (remainingRefundable <= 0) {
+    throw new RefundError(
+      'REFUND_EXCEEDS_TOTAL',
+      `No refundable amount remaining. Already refunded: ${previousRefundTotal}, original: ${totalWithVat}`
+    );
+  }
+  if (normalizedAmount && normalizedAmount > remainingRefundable) {
+    throw new RefundError(
+      'REFUND_EXCEEDS_TOTAL',
+      `Refund of ${normalizedAmount} would exceed remaining refundable. Already refunded: ${previousRefundTotal}, original: ${totalWithVat}`
+    );
+  }
+  const refundAmount = normalizedAmount ?? remainingRefundable;
 
   if (booking.payment.status === 'authorized') {
     const refund = await stripe.refunds.create(
@@ -948,18 +955,21 @@ export const executeRefund = async (
       }
     );
 
-    booking.payment.status = 'refunded';
+    const isPartial = !!normalizedAmount && normalizedAmount < remainingRefundable;
+    booking.payment.status = isPartial ? 'partially_refunded' : 'refunded';
     booking.payment.refundedAt = new Date();
     booking.payment.refundReason = reason;
     booking.payment.refundSource = 'platform';
-    booking.status = 'cancelled';
+    if (!isPartial) {
+      booking.status = 'cancelled';
+    }
     await booking.save();
 
     await Payment.findOneAndUpdate(
       { booking: booking._id },
       {
         $set: buildPaymentUpsertBase(booking, {
-          status: 'refunded',
+          status: booking.payment.status,
           refundedAt: booking.payment.refundedAt,
         }),
         $push: {
@@ -1017,7 +1027,7 @@ export const executeRefund = async (
     }
 
     booking.payment.status =
-      normalizedAmount && normalizedAmount < totalWithVat ? 'partially_refunded' : 'refunded';
+      normalizedAmount && normalizedAmount < remainingRefundable ? 'partially_refunded' : 'refunded';
     booking.payment.refundedAt = new Date();
     booking.payment.refundReason = reason;
     if (booking.payment.status === 'refunded') {
