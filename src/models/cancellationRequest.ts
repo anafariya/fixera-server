@@ -1,6 +1,6 @@
 import { Schema, model, Document, Types } from "mongoose";
 
-export type CancellationRequestStatus = "pending" | "approved" | "denied";
+export type CancellationRequestStatus = "pending" | "processing" | "approved" | "denied";
 
 export interface ICancellationRequest extends Document {
   _id: Types.ObjectId;
@@ -43,7 +43,7 @@ const CancellationRequestSchema = new Schema<ICancellationRequest>(
     },
     status: {
       type: String,
-      enum: ["pending", "approved", "denied"],
+      enum: ["pending", "processing", "approved", "denied"],
       default: "pending",
       required: true,
       index: true,

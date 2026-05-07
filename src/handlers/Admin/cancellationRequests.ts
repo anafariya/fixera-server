@@ -101,7 +101,7 @@ export const approveCancellationRequest = async (req: Request, res: Response) =>
     const adminObjectId = new mongoose.Types.ObjectId(adminId);
     const cancellation = await CancellationRequest.findOneAndUpdate(
       { _id: id, status: "pending" },
-      { $set: { resolvedBy: adminObjectId, resolvedAt: new Date() } },
+      { $set: { status: "processing", resolvedBy: adminObjectId, resolvedAt: new Date() } },
       { new: true }
     );
     if (!cancellation) {
@@ -115,8 +115,8 @@ export const approveCancellationRequest = async (req: Request, res: Response) =>
     const booking = await Booking.findById(cancellation.booking);
     if (!booking) {
       await CancellationRequest.updateOne(
-        { _id: cancellation._id, status: "pending" },
-        { $unset: { resolvedBy: "", resolvedAt: "" } }
+        { _id: cancellation._id, status: "processing" },
+        { $set: { status: "pending" }, $unset: { resolvedBy: "", resolvedAt: "" } }
       );
       return res.status(404).json({ success: false, msg: "Linked booking not found" });
     }

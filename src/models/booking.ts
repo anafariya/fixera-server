@@ -195,6 +195,7 @@ export interface IBooking extends Document {
     stripeChargeId?: string;
     stripeTransferId?: string;
     stripeDestinationPayment?: string;
+    transferCurrency?: string;
 
     // Financial breakdown
     stripeFeeAmount?: number;
@@ -693,6 +694,7 @@ const BookingSchema = new Schema({
     // Stripe Connect transfer fields
     stripeTransferId: { type: String },
     stripeDestinationPayment: { type: String },
+    transferCurrency: { type: String },
 
     // Financial breakdown
     stripeFeeAmount: { type: Number },

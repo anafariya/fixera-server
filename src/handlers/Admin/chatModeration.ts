@@ -134,17 +134,32 @@ export const resolveChatReport = async (req: Request, res: Response) => {
     const reportedSenderId = messageDoc.senderId?.toString();
 
     if (action === "warn") {
+      const warnText = `⚠️ Admin warning: this conversation is being reviewed for reported content.${notes ? ` Note: ${notes}` : ""}`;
+      let createdMessage: any;
       try {
-        await ChatMessage.create({
+        createdMessage = await ChatMessage.create({
           conversationId: report.conversationId,
           senderId: adminObjectId,
           senderRole: "admin",
-          text: `⚠️ Admin warning: this conversation is being reviewed for reported content.${notes ? ` Note: ${notes}` : ""}`,
+          text: warnText,
           messageType: "text",
           readBy: [{ userId: adminObjectId, readAt: new Date() }],
         });
       } catch (err: any) {
         console.error("Warn message create failed:", err?.message || err);
+        return res.status(500).json({ success: false, msg: "Failed to post warning message" });
+      }
+      try {
+        await Conversation.findByIdAndUpdate(report.conversationId, {
+          $set: {
+            lastMessageAt: createdMessage?.createdAt || new Date(),
+            lastMessagePreview: warnText.slice(0, 200),
+            lastMessageSenderId: adminObjectId,
+          },
+        });
+      } catch (err: any) {
+        console.error("Conversation last-message update failed:", err?.message || err);
+        return res.status(500).json({ success: false, msg: "Failed to update conversation" });
       }
       report.status = "reviewed";
     } else if (action === "ban") {
@@ -257,13 +272,28 @@ export const adminStartSupportChat = async (req: Request, res: Response) => {
       supportTargetUserId: targetObjectId,
     });
     if (!conversation) {
-      conversation = await Conversation.create({
-        type: "support",
-        supportAdminId: adminObjectId,
-        supportTargetUserId: targetObjectId,
-        initiatedBy: adminObjectId,
-        status: "active",
-      } as any);
+      try {
+        conversation = await Conversation.create({
+          type: "support",
+          supportAdminId: adminObjectId,
+          supportTargetUserId: targetObjectId,
+          initiatedBy: adminObjectId,
+          status: "active",
+        } as any);
+      } catch (err: any) {
+        if (err?.code === 11000) {
+          conversation = await Conversation.findOne({
+            type: "support",
+            supportAdminId: adminObjectId,
+            supportTargetUserId: targetObjectId,
+          });
+        } else {
+          throw err;
+        }
+      }
+      if (!conversation) {
+        return res.status(500).json({ success: false, msg: "Failed to create or load support conversation" });
+      }
     }
 
     const message = await ChatMessage.create({

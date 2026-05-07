@@ -835,6 +835,7 @@ export const captureAndTransferPayment = async (bookingId: string): Promise<{ su
     booking.payment.status = 'completed';
     booking.payment.stripeTransferId = transfer.id;
     booking.payment.stripeDestinationPayment = transfer.destination_payment as string;
+    booking.payment.transferCurrency = transferCurrency;
     booking.payment.transferredAt = new Date();
     await booking.save();
 
@@ -937,6 +938,9 @@ export const executeRefund = async (
     );
   }
   const refundAmount = normalizedAmount ?? remainingRefundable;
+  const refundIntentVersion = normalizedAmount
+    ? `partial-${booking.payment.stripePaymentIntentId}-${previousRefundTotal}-${normalizedAmount}`
+    : `full-${booking.payment.stripePaymentIntentId}-${previousRefundTotal}`;
 
   if (booking.payment.status === 'authorized') {
     const refund = await stripe.refunds.create(
@@ -950,7 +954,7 @@ export const executeRefund = async (
         idempotencyKey: generateIdempotencyKey({
           bookingId: booking._id.toString(),
           operation: 'refund',
-          timestamp: Date.now(),
+          version: refundIntentVersion,
         }),
       }
     );
@@ -966,7 +970,7 @@ export const executeRefund = async (
     await booking.save();
 
     await Payment.findOneAndUpdate(
-      { booking: booking._id },
+      { booking: booking._id, "refunds.refundId": { $ne: refund.id } },
       {
         $set: buildPaymentUpsertBase(booking, {
           status: booking.payment.status,
@@ -1003,16 +1007,18 @@ export const executeRefund = async (
         idempotencyKey: generateIdempotencyKey({
           bookingId: booking._id.toString(),
           operation: 'refund',
-          timestamp: Date.now(),
+          version: refundIntentVersion,
         }),
       }
     );
 
     if (booking.payment.stripeTransferId) {
       try {
+        const reversalCurrency =
+          booking.payment.transferCurrency || booking.payment.currency || 'EUR';
         await stripe.transfers.createReversal(booking.payment.stripeTransferId, {
           amount: normalizedAmount
-            ? convertToStripeAmount(normalizedAmount, booking.payment.currency || 'EUR')
+            ? convertToStripeAmount(normalizedAmount, reversalCurrency)
             : undefined,
           metadata: { reason: reason || '', bookingId: booking._id.toString() },
         });
@@ -1036,7 +1042,7 @@ export const executeRefund = async (
     await booking.save();
 
     await Payment.findOneAndUpdate(
-      { booking: booking._id },
+      { booking: booking._id, "refunds.refundId": { $ne: refund.id } },
       {
         $set: buildPaymentUpsertBase(booking, {
           status: booking.payment.status,
