@@ -309,13 +309,15 @@ export const adminStartSupportChat = async (req: Request, res: Response) => {
       readBy: [{ userId: adminObjectId, readAt: new Date() }],
     });
 
+    const unreadField =
+      targetUser.role === "professional" ? "professionalUnreadCount" : "customerUnreadCount";
     await Conversation.findByIdAndUpdate(conversation._id, {
       $set: {
         lastMessageAt: new Date(),
         lastMessagePreview: initialMessage.trim().slice(0, 200),
         lastMessageSenderId: adminObjectId,
       },
-      $inc: { customerUnreadCount: 1 },
+      $inc: { [unreadField]: 1 },
     });
 
     return res.status(201).json({

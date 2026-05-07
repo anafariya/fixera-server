@@ -836,6 +836,7 @@ export const captureAndTransferPayment = async (bookingId: string): Promise<{ su
     booking.payment.stripeTransferId = transfer.id;
     booking.payment.stripeDestinationPayment = transfer.destination_payment as string;
     booking.payment.transferCurrency = transferCurrency;
+    booking.payment.transferAmount = transferAmount;
     booking.payment.transferredAt = new Date();
     await booking.save();
 
@@ -1012,10 +1013,22 @@ export const executeRefund = async (
       try {
         const reversalCurrency =
           booking.payment.transferCurrency || booking.payment.currency || 'EUR';
+        const storedTransferAmount = booking.payment.transferAmount;
+        let reversalMinorAmount: number | undefined;
+        if (typeof storedTransferAmount === 'number' && storedTransferAmount > 0 && totalWithVat > 0) {
+          if (normalizedAmount && normalizedAmount < totalWithVat) {
+            reversalMinorAmount = Math.min(
+              storedTransferAmount,
+              Math.max(1, Math.round(storedTransferAmount * (normalizedAmount / totalWithVat)))
+            );
+          } else {
+            reversalMinorAmount = storedTransferAmount;
+          }
+        } else if (normalizedAmount) {
+          reversalMinorAmount = convertToStripeAmount(normalizedAmount, reversalCurrency);
+        }
         await stripe.transfers.createReversal(booking.payment.stripeTransferId, {
-          amount: normalizedAmount
-            ? convertToStripeAmount(normalizedAmount, reversalCurrency)
-            : undefined,
+          amount: reversalMinorAmount,
           metadata: { reason: reason || '', bookingId: booking._id.toString() },
         });
         booking.payment.refundSource = 'professional';

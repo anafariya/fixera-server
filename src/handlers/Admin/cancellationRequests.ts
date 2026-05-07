@@ -125,7 +125,7 @@ export const approveCancellationRequest = async (req: Request, res: Response) =>
     let refundedAt: Date | undefined;
     const totalWithVat = booking.payment?.totalWithVat ?? 0;
     const hasPayment = !!booking.payment?.stripePaymentIntentId;
-    const refundableStatuses = ["authorized", "completed"];
+    const refundableStatuses = ["authorized", "completed", "partially_refunded"];
 
     if (hasPayment && booking.payment && refundableStatuses.includes(booking.payment.status)) {
       try {

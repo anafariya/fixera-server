@@ -1274,7 +1274,7 @@ export const cancelBooking = async (req: Request, res: Response, next: NextFunct
 
     const existingPending = await CancellationRequest.findOne({
       booking: booking._id,
-      status: 'pending',
+      status: { $in: ['pending', 'processing'] },
     });
     if (existingPending) {
       return res.status(409).json({
