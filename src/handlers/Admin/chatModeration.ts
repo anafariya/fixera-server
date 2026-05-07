@@ -119,80 +119,93 @@ export const resolveChatReport = async (req: Request, res: Response) => {
     }
 
     const adminObjectId = new mongoose.Types.ObjectId(adminId);
-    const report = await ChatReport.findById(id).populate("messageId");
-    if (!report) {
-      return res.status(404).json({ success: false, msg: "Report not found" });
-    }
-    if (report.status !== "pending") {
-      return res.status(409).json({ success: false, msg: `Report is already ${report.status}` });
-    }
 
-    const messageDoc: any = report.messageId;
-    if (!messageDoc) {
-      return res.status(409).json({ success: false, msg: "Reported message not found" });
-    }
-    const reportedSenderId = messageDoc.senderId?.toString();
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      const report = await ChatReport.findById(id).populate("messageId").session(session);
+      if (!report) {
+        await session.abortTransaction();
+        return res.status(404).json({ success: false, msg: "Report not found" });
+      }
+      if (report.status !== "pending") {
+        await session.abortTransaction();
+        return res.status(409).json({ success: false, msg: `Report is already ${report.status}` });
+      }
 
-    if (action === "warn") {
-      const warnText = `⚠️ Admin warning: this conversation is being reviewed for reported content.${notes ? ` Note: ${notes}` : ""}`;
-      let createdMessage: any;
-      try {
-        createdMessage = await ChatMessage.create({
-          conversationId: report.conversationId,
-          senderId: adminObjectId,
-          senderRole: "admin",
-          text: warnText,
-          messageType: "text",
-          readBy: [{ userId: adminObjectId, readAt: new Date() }],
-        });
-      } catch (err: any) {
-        console.error("Warn message create failed:", err?.message || err);
-        return res.status(500).json({ success: false, msg: "Failed to post warning message" });
+      const messageDoc: any = report.messageId;
+      if (!messageDoc) {
+        await session.abortTransaction();
+        return res.status(409).json({ success: false, msg: "Reported message not found" });
       }
-      try {
-        await Conversation.findByIdAndUpdate(report.conversationId, {
-          $set: {
-            lastMessageAt: createdMessage?.createdAt || new Date(),
-            lastMessagePreview: warnText.slice(0, 200),
-            lastMessageSenderId: adminObjectId,
+      const reportedSenderId = messageDoc.senderId?.toString();
+
+      if (action === "warn") {
+        const warnText = `⚠️ Admin warning: this conversation is being reviewed for reported content.${notes ? ` Note: ${notes}` : ""}`;
+        const [createdMessage] = await ChatMessage.create(
+          [{
+            conversationId: report.conversationId,
+            senderId: adminObjectId,
+            senderRole: "admin",
+            text: warnText,
+            messageType: "text",
+            readBy: [{ userId: adminObjectId, readAt: new Date() }],
+          }],
+          { session }
+        );
+        await Conversation.findByIdAndUpdate(
+          report.conversationId,
+          {
+            $set: {
+              lastMessageAt: createdMessage?.createdAt || new Date(),
+              lastMessagePreview: warnText.slice(0, 200),
+              lastMessageSenderId: adminObjectId,
+            },
           },
-        });
-      } catch (err: any) {
-        console.error("Conversation last-message update failed:", err?.message || err);
-        return res.status(500).json({ success: false, msg: "Failed to update conversation" });
-      }
-      report.status = "reviewed";
-    } else if (action === "ban") {
-      if (!reportedSenderId || !mongoose.Types.ObjectId.isValid(reportedSenderId)) {
-        return res.status(400).json({
-          success: false,
-          msg: "Cannot ban: reported message has no valid sender",
-        });
-      }
-      const result = await User.updateOne(
-        { _id: reportedSenderId, role: { $in: ["customer", "professional"] } },
-        {
-          $set: {
-            accountStatus: "suspended",
-            suspensionReason: typeof notes === "string" && notes.trim()
-              ? `Banned by admin: ${notes.trim()}`
-              : "Banned by admin (chat moderation)",
-          },
+          { session }
+        );
+        report.status = "reviewed";
+      } else if (action === "ban") {
+        if (!reportedSenderId || !mongoose.Types.ObjectId.isValid(reportedSenderId)) {
+          await session.abortTransaction();
+          return res.status(400).json({
+            success: false,
+            msg: "Cannot ban: reported message has no valid sender",
+          });
         }
-      );
-      if (result.matchedCount === 0) {
-        return res.status(409).json({
-          success: false,
-          msg: "Cannot ban this user (admin/system accounts cannot be suspended via chat moderation)",
-        });
+        const result = await User.updateOne(
+          { _id: reportedSenderId, role: { $in: ["customer", "professional"] } },
+          {
+            $set: {
+              accountStatus: "suspended",
+              suspensionReason: typeof notes === "string" && notes.trim()
+                ? `Banned by admin: ${notes.trim()}`
+                : "Banned by admin (chat moderation)",
+            },
+          },
+          { session }
+        );
+        if (result.matchedCount === 0) {
+          await session.abortTransaction();
+          return res.status(409).json({
+            success: false,
+            msg: "Cannot ban this user (admin/system accounts cannot be suspended via chat moderation)",
+          });
+        }
+        report.status = "reviewed";
+      } else {
+        report.status = "dismissed";
       }
-      report.status = "reviewed";
-    } else {
-      report.status = "dismissed";
-    }
 
-    await report.save();
-    return res.json({ success: true, data: { report } });
+      await report.save({ session });
+      await session.commitTransaction();
+      return res.json({ success: true, data: { report } });
+    } catch (innerErr: any) {
+      try { await session.abortTransaction(); } catch {}
+      throw innerErr;
+    } finally {
+      session.endSession();
+    }
   } catch (error: any) {
     console.error("Resolve chat report error:", error);
     return res.status(500).json({ success: false, msg: "Failed to resolve report" });

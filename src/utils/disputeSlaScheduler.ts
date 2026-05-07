@@ -18,8 +18,8 @@ export const runDisputeSlaCheck = async (): Promise<DisputeSlaCheckResult> => {
   const breached = await Booking.find({
     status: "dispute",
     "dispute.resolvedAt": { $exists: false },
-    "dispute.slaDeadline": { $lte: now, $exists: true },
-    "dispute.slaBreachNotifiedAt": { $exists: false },
+    "dispute.slaDeadline": { $lte: now },
+    "dispute.slaBreachNotifiedAt": null,
   })
     .select("_id dispute")
     .lean();

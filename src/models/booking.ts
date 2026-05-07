@@ -1,5 +1,10 @@
 import mongoose, { Schema, model, Document, Types } from "mongoose";
 import { getNextSequence } from "../utils/counterSequence";
+import { STRIPE_CONFIG } from "../services/stripe";
+
+const SUPPORTED_CURRENCIES = STRIPE_CONFIG.supportedCurrencies.length
+  ? STRIPE_CONFIG.supportedCurrencies
+  : [STRIPE_CONFIG.defaultCurrency || "EUR"];
 
 export type BookingStatus =
   | 'rfq'           // Request for Quote - Initial state when customer requests
@@ -695,7 +700,7 @@ const BookingSchema = new Schema({
     // Stripe Connect transfer fields
     stripeTransferId: { type: String },
     stripeDestinationPayment: { type: String },
-    transferCurrency: { type: String },
+    transferCurrency: { type: String, enum: SUPPORTED_CURRENCIES },
     transferAmount: { type: Number, min: [0, 'transferAmount cannot be negative'] },
 
     // Financial breakdown
